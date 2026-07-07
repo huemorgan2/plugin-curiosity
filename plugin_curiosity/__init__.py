@@ -14,9 +14,10 @@ from luna_sdk import LunaPlugin, PluginContext, PluginManifest
 class CuriosityPlugin(LunaPlugin):
     manifest = PluginManifest(
         name="plugin-curiosity",
-        version="0.1.0",
+        version="0.1.1",
         description="Mission-driven curiosity: research, wiki-building, nightly dreams, proactive reflections.",
         capabilities=["wiki"],
+        routes_module="routes",
     )
 
     async def on_load(self, ctx: PluginContext) -> None:
