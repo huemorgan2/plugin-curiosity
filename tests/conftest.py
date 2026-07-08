@@ -109,7 +109,8 @@ class FakeToolRegistry:
                 self.trigger_created.append(kw)
                 self.existing_triggers.append(
                     {"id": f"trg-{len(self.trigger_created)}", "name": kw["name"],
-                     "target": kw.get("target"), "enabled": True})
+                     "target": kw.get("target"),
+                     "expr_raw": kw.get("schedule_expr"), "enabled": True})
                 return {"id": f"trg-{len(self.trigger_created)}", "expr_cron": "0 9 * * *",
                         "next_run_at": "2026-01-01T09:00:00Z"}
             return types.SimpleNamespace(handler=_create)
@@ -119,8 +120,11 @@ class FakeToolRegistry:
             async def _update(**kw):
                 self.trigger_updated.append(kw)
                 for t in self.existing_triggers:
-                    if t["id"] == kw["id"] and kw.get("target") is not None:
-                        t["target"] = kw["target"]
+                    if t["id"] == kw["id"]:
+                        if kw.get("target") is not None:
+                            t["target"] = kw["target"]
+                        if kw.get("schedule_expr") is not None:
+                            t["expr_raw"] = kw["schedule_expr"]
                 return {"id": kw["id"], "expr_cron": "0 9 * * *",
                         "next_run_at": "2026-01-01T09:00:00Z"}
             return types.SimpleNamespace(handler=_update)

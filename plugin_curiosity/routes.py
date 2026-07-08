@@ -36,6 +36,23 @@ def register_routes(app, ctx):
     reflections = comms.ReflectionLog(ctx.db_session_factory)
     router = APIRouter(prefix="/api/p/plugin-curiosity", tags=["curiosity"])
 
+    # On-load work must run in the SERVING loop. Under `luna serve`, on_load
+    # runs in a throwaway bootstrap loop (its tasks die with it) — this
+    # startup hook is what actually lands there. On a runtime install the
+    # app has already started (this hook never fires) and on_load's own call
+    # lands instead; the loop-identity guard makes the pair safe.
+    # app.router.on_startup is the core's own idiom (cli.py mounts _reboot_mcp
+    # the same way); the app object has no add_event_handler.
+    def _on_startup() -> None:
+        from . import schedule_on_load_work
+
+        schedule_on_load_work(ctx, store, reflections)
+
+    try:
+        app.router.on_startup.append(_on_startup)
+    except AttributeError:
+        pass  # exotic host app — on_load's own call is the only path
+
     @router.get("/mission")
     async def mission(user=Depends(get_current_user)):
         return {"mission": await store.get()}

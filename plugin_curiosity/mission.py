@@ -24,7 +24,7 @@ from sqlalchemy import select, update
 
 from luna_sdk import PluginContext, ToolDef
 
-from . import research
+from . import dream, research
 from .models import Mission
 
 log = logging.getLogger("plugin-curiosity")
@@ -34,9 +34,11 @@ RISK_CEILINGS = ("low", "medium", "high")
 
 # Recurring schedules registered on mission_set. Targets are self-contained
 # prompts that re-read the CURRENT mission at fire time (via mission_get), so
-# refining the statement never requires re-syncing the scheduler. The dream
-# target is still a placeholder — phase 5 fills it; _sync_schedules updates
-# existing triggers in place when a target changes between versions.
+# refining the statement never requires re-syncing the scheduler.
+# _sync_schedules updates existing triggers in place when a target or
+# schedule_expr changes between plugin versions. 02:00 is the dead-hours slot:
+# inside quiet hours (the dream's share_thought queues until morning) and away
+# from any daytime turn load.
 MISSION_SCHEDULES: list[dict[str, str]] = [
     {
         "name": "curiosity-daily-research",
@@ -46,14 +48,9 @@ MISSION_SCHEDULES: list[dict[str, str]] = [
     },
     {
         "name": "curiosity-nightly-dream",
-        "schedule_expr": "every day at 03:30",
+        "schedule_expr": "every day at 02:00",
         "action_type": "agent_prompt",
-        "target": (
-            "[curiosity] Nightly dream. Call mission_get, then wiki_toc; "
-            "consolidate today's raw notes into clearer wiki pages (merge, "
-            "rewrite, link). Placeholder routine — refined in a later phase. "
-            "Do not message the owner."
-        ),
+        "target": dream.DREAM_TARGET,
     },
 ]
 
@@ -189,13 +186,26 @@ async def _retry_tool(handler, /, **kwargs) -> dict[str, Any]:
     return result
 
 
+def _spec_drift(current: dict[str, Any], spec: dict[str, str]) -> dict[str, str]:
+    """Fields of a live trigger that drifted from its MISSION_SCHEDULES spec
+    (trigger_update kwargs). expr_raw stores the phrase as submitted, so a
+    plain string compare detects a changed schedule."""
+    drift: dict[str, str] = {}
+    if current.get("target") != spec["target"]:
+        drift["target"] = spec["target"]
+    if current.get("expr_raw") != spec["schedule_expr"]:
+        drift["schedule_expr"] = spec["schedule_expr"]
+    return drift
+
+
 async def _sync_schedules(ctx: PluginContext) -> str:
     """Ensure the mission's recurring triggers exist AND carry the current
-    target prompts. Missing triggers are created; an existing trigger whose
-    target drifted from MISSION_SCHEDULES (e.g. a placeholder from an older
-    plugin version) is updated in place via trigger_update — identity and
-    fire history survive. Calls plugin-scheduler's tool handlers directly —
-    all involved tools are auto_approve."""
+    target prompts + schedules. Missing triggers are created; an existing
+    trigger that drifted from MISSION_SCHEDULES (e.g. a placeholder target or
+    an old fire time from a previous plugin version) is updated in place via
+    trigger_update — identity and fire history survive. Calls
+    plugin-scheduler's tool handlers directly — all involved tools are
+    auto_approve."""
     try:
         lister = ctx.tool_registry.get("trigger_list").handler
         creator = ctx.tool_registry.get("trigger_create").handler
@@ -217,10 +227,10 @@ async def _sync_schedules(ctx: PluginContext) -> str:
             if "error" in result:
                 return f"trigger_create({spec['name']}) failed: {result['error']}"
             created.append(spec["name"])
-        elif updater is not None and current.get("target") != spec["target"]:
-            result = await _retry_tool(
-                updater, id=current["id"], target=spec["target"]
-            )
+            continue
+        drift = _spec_drift(current, spec) if updater is not None else {}
+        if drift:
+            result = await _retry_tool(updater, id=current["id"], **drift)
             if "error" in result:
                 return f"trigger_update({spec['name']}) failed: {result['error']}"
             updated.append(spec["name"])

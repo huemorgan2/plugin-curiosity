@@ -63,12 +63,15 @@ def test_daily_research_target_is_wired():
 async def test_sync_updates_stale_target_in_place(ctx):
     ctx.tool_registry.existing_triggers = [
         {"id": "trg-old", "name": "curiosity-daily-research",
-         "target": "old placeholder", "enabled": True},
+         "target": "old placeholder", "expr_raw": "every day at 09:00",
+         "enabled": True},
     ]
     r = await call(ctx, "mission_set", statement="grow signups")
     updated = ctx.tool_registry.trigger_updated
     assert [u["id"] for u in updated] == ["trg-old"]
     assert updated[0]["target"] == research.DAILY_RESEARCH_TARGET
+    # only the drifted field is sent — the schedule was already current
+    assert "schedule_expr" not in updated[0]
     # the dream trigger was missing -> created; research updated, not recreated
     assert {c["name"] for c in ctx.tool_registry.trigger_created} == {"curiosity-nightly-dream"}
     assert "curiosity-daily-research" in r["schedules"]
@@ -84,7 +87,8 @@ async def test_sync_tolerates_old_scheduler_without_update_tool(ctx):
     ctx.tool_registry.has_update_tool = False
     ctx.tool_registry.existing_triggers = [
         {"id": "trg-old", "name": "curiosity-daily-research",
-         "target": "old placeholder", "enabled": True},
+         "target": "old placeholder", "expr_raw": "every day at 09:00",
+         "enabled": True},
     ]
     r = await call(ctx, "mission_set", statement="grow signups")
     # create-only sync: no crash, dream still created, research left as-is
