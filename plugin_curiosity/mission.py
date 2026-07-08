@@ -354,10 +354,24 @@ def prompt_fragment(mission: dict[str, Any] | None) -> str:
         "noise budget — one routine reflection a day, quiet hours queue)."
     )
     if mission is None:
+        # Mission-first onboarding (phase 6): the vision's inversion — mission →
+        # curiosity → shared understanding → trust → setup. This fragment sits
+        # after the onboarding addendum in the system prompt and deliberately
+        # reorders its checklist.
         return (
-            "Curiosity: you have no active mission yet. When the owner gives you "
-            "one (or you agree on one together), adopt it with mission_set — it "
-            "seeds your wiki and your recurring research/dream schedules. " + rails
+            "Curiosity: you have no active mission yet — getting one is your top "
+            "priority. In your FIRST exchange with the owner (even during "
+            "first-run setup, before name or emoji), ask what mission they want "
+            "you to own: one focused question, in your own voice. The moment "
+            "they state a mission (or you agree on one together), call "
+            "mission_set IN THAT SAME TURN, before asking anything else — never "
+            "defer it behind name, emoji, or other setup questions; adopting it "
+            "seeds your wiki, starts your recurring research/dream schedules, "
+            "and kicks off a same-day quick win, and every exchange it waits is "
+            "a quick win delayed. If first-run setup is in progress, the "
+            "adopted mission doubles as your identity: also save it with "
+            "update_self(field='mission', ...) right away, then continue the "
+            "rest of setup. " + rails
         )
     return (
         f"Curiosity: your mission — {mission['statement']} (autonomy rung "

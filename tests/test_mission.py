@@ -131,6 +131,12 @@ async def test_prompt_fragment(ctx, store):
 
     empty = prompt_fragment(None)
     assert "no active mission" in empty and "mission_set" in empty
+    # mission-first onboarding (phase 6): the no-mission state actively asks
+    # for a mission FIRST — before the onboarding checklist's name/emoji —
+    # and bridges the adopted mission into identity via update_self
+    assert "FIRST exchange" in empty and "before name or emoji" in empty
+    assert "update_self" in empty
+    assert "IN THAT SAME TURN" in empty and "never" in empty
 
     await call(ctx, "mission_set", statement="grow signups", rung=2)
     frag = prompt_fragment(await store.get())

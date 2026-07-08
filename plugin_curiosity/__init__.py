@@ -75,7 +75,7 @@ def schedule_on_load_work(
 class CuriosityPlugin(LunaPlugin):
     manifest = PluginManifest(
         name="plugin-curiosity",
-        version="0.4.0",
+        version="0.4.2",
         description="Mission-driven curiosity: research, wiki-building, nightly dreams, proactive reflections.",
         capabilities=["wiki"],
         db_tables=[t.name for t in ALL_TABLES],
