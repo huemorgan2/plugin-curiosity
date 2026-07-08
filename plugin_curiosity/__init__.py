@@ -21,7 +21,7 @@ log = logging.getLogger("plugin-curiosity")
 class CuriosityPlugin(LunaPlugin):
     manifest = PluginManifest(
         name="plugin-curiosity",
-        version="0.2.0",
+        version="0.2.1",
         description="Mission-driven curiosity: research, wiki-building, nightly dreams, proactive reflections.",
         capabilities=["wiki"],
         db_tables=[t.name for t in ALL_TABLES],
