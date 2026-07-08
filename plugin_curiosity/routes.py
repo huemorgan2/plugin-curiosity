@@ -9,7 +9,14 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
+from . import comms
 from .mission import MissionStore
+
+
+class ShareBody(BaseModel):
+    title: str = "Reflection"
+    body: str
+    kind: str = "routine"
 
 
 class ReflectBody(BaseModel):
@@ -26,6 +33,7 @@ def register_routes(app, ctx):
     from luna_sdk import get_current_user
 
     store = MissionStore(ctx.db_session_factory)
+    reflections = comms.ReflectionLog(ctx.db_session_factory)
     router = APIRouter(prefix="/api/p/plugin-curiosity", tags=["curiosity"])
 
     @router.get("/mission")
@@ -41,6 +49,28 @@ def register_routes(app, ctx):
             conversation_id=payload.conversation_id,
             source="curiosity",
         )
+
+    @router.post("/comms/drain")
+    async def drain(user=Depends(get_current_user)):
+        """Post queued thoughts if outside quiet hours (test/ops hook — the
+        organic drain points are share_thought calls and plugin load)."""
+        return await comms.drain_queue(ctx, reflections)
+
+    @router.post("/comms/share")
+    async def share(payload: ShareBody, user=Depends(get_current_user)):
+        """Run a thought through the share_thought guardrails (test/ops hook —
+        the agent-facing path is the share_thought tool, and the agent rightly
+        refuses to call it with deliberately invalid input)."""
+        return await comms.share(
+            ctx, reflections, body=payload.body, title=payload.title, kind=payload.kind
+        )
+
+    @router.get("/comms/reflections")
+    async def list_reflections(user=Depends(get_current_user)):
+        return {
+            "queued": await reflections.queued(),
+            "routine_posted_today": await reflections.routine_posted_today(),
+        }
 
     @router.get("/status")
     async def status(user=Depends(get_current_user)):

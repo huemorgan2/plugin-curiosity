@@ -1,6 +1,7 @@
-"""SQLAlchemy rows for plugin-curiosity. Single table: the mission register.
-Namespaced `curiosity_missions` (not bare `missions`) — plugin tables share
-core's database, so the prefix convention from plugin-wiki applies."""
+"""SQLAlchemy rows for plugin-curiosity: the mission register and the
+reflection log (share_thought's cadence ledger). Namespaced `curiosity_*` —
+plugin tables share core's database, so the prefix convention from
+plugin-wiki applies."""
 
 from __future__ import annotations
 
@@ -42,4 +43,26 @@ class Mission(Base):
     )
 
 
-ALL_TABLES = (Mission.__table__,)
+class Reflection(Base):
+    """One row per shared (or queued) thought — the guardrail ledger.
+
+    `kind`: "routine" (counts against the daily cap) | "kickoff" | "dream".
+    `status`: "posted" | "queued" (created in quiet hours; drained after).
+    """
+
+    __tablename__ = "curiosity_reflections"
+
+    id: Mapped[_uuid.UUID] = mapped_column(UUID(), primary_key=True, default=_uuid.uuid4)
+    kind: Mapped[str] = mapped_column(String(16), default="routine", nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="posted", nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    posted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+ALL_TABLES = (Mission.__table__, Reflection.__table__)

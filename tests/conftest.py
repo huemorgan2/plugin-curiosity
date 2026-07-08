@@ -60,19 +60,24 @@ _install_luna_sdk_stub()
 
 
 @pytest_asyncio.fixture
-async def store():
+async def sf():
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-    from plugin_curiosity.mission import MissionStore
     from plugin_curiosity.models import ALL_TABLES
 
     engine = create_async_engine("sqlite+aiosqlite://")
     async with engine.begin() as conn:
         for table in ALL_TABLES:
             await conn.run_sync(table.create, checkfirst=True)
-    sf = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
-    yield MissionStore(sf)
+    yield async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
     await engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def store(sf):
+    from plugin_curiosity.mission import MissionStore
+
+    return MissionStore(sf)
 
 
 class FakeToolRegistry:
@@ -81,8 +86,10 @@ class FakeToolRegistry:
     def __init__(self) -> None:
         self.registered: dict[str, tuple[Any, Any]] = {}
         self.trigger_created: list[dict] = []
+        self.trigger_updated: list[dict] = []
         self.existing_triggers: list[dict] = []
         self.scheduler_installed = True
+        self.has_update_tool = True
 
     def register(self, plugin: str, tool_def: Any, handler: Any) -> None:
         self.registered[tool_def.name] = (tool_def, handler)
@@ -100,10 +107,23 @@ class FakeToolRegistry:
         if name == "trigger_create":
             async def _create(**kw):
                 self.trigger_created.append(kw)
-                self.existing_triggers.append({"name": kw["name"], "enabled": True})
+                self.existing_triggers.append(
+                    {"id": f"trg-{len(self.trigger_created)}", "name": kw["name"],
+                     "target": kw.get("target"), "enabled": True})
                 return {"id": f"trg-{len(self.trigger_created)}", "expr_cron": "0 9 * * *",
                         "next_run_at": "2026-01-01T09:00:00Z"}
             return types.SimpleNamespace(handler=_create)
+        if name == "trigger_update":
+            if not self.has_update_tool:
+                raise KeyError(name)
+            async def _update(**kw):
+                self.trigger_updated.append(kw)
+                for t in self.existing_triggers:
+                    if t["id"] == kw["id"] and kw.get("target") is not None:
+                        t["target"] = kw["target"]
+                return {"id": kw["id"], "expr_cron": "0 9 * * *",
+                        "next_run_at": "2026-01-01T09:00:00Z"}
+            return types.SimpleNamespace(handler=_update)
         raise KeyError(name)
 
 
@@ -150,14 +170,25 @@ class FakeConfigRegistry:
 
 
 @pytest.fixture
-def ctx(store):
+def ctx(store, sf):
     """Fake PluginContext with recording seams, tools pre-registered."""
+    from plugin_curiosity.comms import ReflectionLog
+    from plugin_curiosity.comms import register_tools as register_comms_tools
     from plugin_curiosity.mission import register_tools
 
     c = types.SimpleNamespace(
         tool_registry=FakeToolRegistry(),
         provider_registry=FakeProviderRegistry(FakeWikiProvider()),
         config_registry=FakeConfigRegistry(),
+        muted_posts=[],
     )
+
+    async def send_muted_message(title, content, **kw):
+        c.muted_posts.append({"title": title, "content": content, **kw})
+        return {"ok": True}
+
+    c.send_muted_message = send_muted_message
+    c.reflections = ReflectionLog(sf)
     register_tools(c, store)
+    register_comms_tools(c, c.reflections)
     return c

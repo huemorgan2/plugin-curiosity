@@ -24,6 +24,7 @@ from sqlalchemy import select, update
 
 from luna_sdk import PluginContext, ToolDef
 
+from . import research
 from .models import Mission
 
 log = logging.getLogger("plugin-curiosity")
@@ -33,20 +34,15 @@ RISK_CEILINGS = ("low", "medium", "high")
 
 # Recurring schedules registered on mission_set. Targets are self-contained
 # prompts that re-read the CURRENT mission at fire time (via mission_get), so
-# refining the statement never requires re-syncing the scheduler. Phases 4/5
-# replace the placeholder bodies with the real research/dream routines.
+# refining the statement never requires re-syncing the scheduler. The dream
+# target is still a placeholder — phase 5 fills it; _sync_schedules updates
+# existing triggers in place when a target changes between versions.
 MISSION_SCHEDULES: list[dict[str, str]] = [
     {
         "name": "curiosity-daily-research",
         "schedule_expr": "every day at 09:00",
         "action_type": "agent_prompt",
-        "target": (
-            "[curiosity] Daily research pass. Call mission_get for your current "
-            "mission, then wiki_toc; pick ONE gap or open question and improve the "
-            "wiki about it (wiki_write/wiki_patch, cite sources). Placeholder "
-            "routine — refined in a later phase. Work quietly; do not message the "
-            "owner unless you found something genuinely important."
-        ),
+        "target": research.DAILY_RESEARCH_TARGET,
     },
     {
         "name": "curiosity-nightly-dream",
@@ -194,26 +190,43 @@ async def _retry_tool(handler, /, **kwargs) -> dict[str, Any]:
 
 
 async def _sync_schedules(ctx: PluginContext) -> str:
-    """Ensure the mission's recurring triggers exist (by name, idempotent).
-    Calls plugin-scheduler's tool handlers directly — both are auto_approve."""
+    """Ensure the mission's recurring triggers exist AND carry the current
+    target prompts. Missing triggers are created; an existing trigger whose
+    target drifted from MISSION_SCHEDULES (e.g. a placeholder from an older
+    plugin version) is updated in place via trigger_update — identity and
+    fire history survive. Calls plugin-scheduler's tool handlers directly —
+    all involved tools are auto_approve."""
     try:
         lister = ctx.tool_registry.get("trigger_list").handler
         creator = ctx.tool_registry.get("trigger_create").handler
     except KeyError:
         return "plugin-scheduler not installed — no schedules registered"
+    try:
+        updater = ctx.tool_registry.get("trigger_update").handler
+    except KeyError:
+        updater = None  # older plugin-scheduler: create-only sync
     listed = await _retry_tool(lister)
     if "error" in listed:
         return f"scheduler unreachable: {listed['error']}"
-    existing = {t.get("name") for t in listed.get("triggers", [])}
-    created = []
+    existing = {t.get("name"): t for t in listed.get("triggers", [])}
+    created, updated = [], []
     for spec in MISSION_SCHEDULES:
-        if spec["name"] in existing:
-            continue
-        result = await _retry_tool(creator, **spec)
-        if "error" in result:
-            return f"trigger_create({spec['name']}) failed: {result['error']}"
-        created.append(spec["name"])
-    return f"created {created}" if created else "already registered"
+        current = existing.get(spec["name"])
+        if current is None:
+            result = await _retry_tool(creator, **spec)
+            if "error" in result:
+                return f"trigger_create({spec['name']}) failed: {result['error']}"
+            created.append(spec["name"])
+        elif updater is not None and current.get("target") != spec["target"]:
+            result = await _retry_tool(
+                updater, id=current["id"], target=spec["target"]
+            )
+            if "error" in result:
+                return f"trigger_update({spec['name']}) failed: {result['error']}"
+            updated.append(spec["name"])
+    if not created and not updated:
+        return "already registered"
+    return f"created {created}, updated {updated}"
 
 
 def register_tools(ctx: PluginContext, store: MissionStore) -> None:
@@ -227,6 +240,8 @@ def register_tools(ctx: PluginContext, store: MissionStore) -> None:
             "identity_sync": await _write_through_identity(ctx, mission["statement"]),
             "wiki_stubs": await _seed_wiki_stubs(ctx, mission["statement"]),
             "schedules": await _sync_schedules(ctx),
+            # fire-and-forget: the kickoff moment posts right after this turn
+            "kickoff": research.spawn_kickoff(ctx, mission["statement"]),
         }
 
     async def _refine(
@@ -257,10 +272,11 @@ def register_tools(ctx: PluginContext, store: MissionStore) -> None:
                 description=(
                     "Adopt a new mission (replaces any active one). Writes the "
                     "mission into your identity (system prompt), seeds starter "
-                    "wiki pages, and registers your recurring research/dream "
-                    "schedules. autonomy_rung 1-4: how proactively you may act "
-                    "(4 = execute-with-approval; unattended execution is a later "
-                    "owner decision, not a rung)."
+                    "wiki pages, registers your recurring research/dream "
+                    "schedules, and starts the kickoff research pass (a Mission "
+                    "Kickoff moment follows in this conversation). autonomy_rung "
+                    "1-4: how proactively you may act (4 = execute-with-approval; "
+                    "unattended execution is a later owner decision, not a rung)."
                 ),
                 parameters={
                     "type": "object",
@@ -322,7 +338,10 @@ def prompt_fragment(mission: dict[str, Any] | None) -> str:
         "clock is external and always-on). When you notice a repeatable action, "
         "author a playbook in conversation (playbook_propose / playbook_edit — "
         "chat-only tools) and run or schedule it by name; side-effecting steps "
-        "go through their normal approval gates, so propose confidently."
+        "go through their normal approval gates, so propose confidently. When "
+        "you learn something the owner would genuinely want to know, share it "
+        "with share_thought (cite a [[wiki-page]] or source; it enforces the "
+        "noise budget — one routine reflection a day, quiet hours queue)."
     )
     if mission is None:
         return (
