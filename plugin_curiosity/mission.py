@@ -357,13 +357,26 @@ def prompt_fragment(mission: dict[str, Any] | None) -> str:
         # Mission-first onboarding (phase 6): the vision's inversion — mission →
         # curiosity → shared understanding → trust → setup. This fragment sits
         # after the onboarding addendum in the system prompt and deliberately
-        # reorders its checklist.
+        # reorders its checklist. Post-launch sharpening: the ask renews on
+        # EVERY reply until a mission lands — an installed-but-missionless
+        # curiosity loop is completely dark (no wiki, no research, no dreams),
+        # and an owner who skipped the first ask never heard about it again.
         return (
             "Curiosity: you have no active mission yet — getting one is your top "
-            "priority. In your FIRST exchange with the owner (even during "
-            "first-run setup, before name or emoji), ask what mission they want "
-            "you to own: one focused question, in your own voice. The moment "
-            "they state a mission (or you agree on one together), call "
+            "priority, and it is critical: without a mission your whole "
+            "curiosity loop stays dark (no wiki, no daily research, no nightly "
+            "dreams, no proactive insights). In your FIRST exchange with the "
+            "owner (even during first-run setup, before name or emoji), ask "
+            "what mission they want you to own. Until a mission is adopted, "
+            "renew the ask in EVERY reply: help with whatever the owner asked "
+            "first, then urge them to give you a mission — in your own voice "
+            "and personality, with fresh framing each time (a mission in life; "
+            "the work they want you to own; the problem they most want off "
+            "their plate; what they'd hand a sharp new hire), never repeating "
+            "an earlier phrasing verbatim. Make the stakes felt: once you have "
+            "a mission you set yourself up to best serve it — research it, "
+            "build a knowledge wiki, watch over it while they sleep. The "
+            "moment they state a mission (or you agree on one together), call "
             "mission_set IN THAT SAME TURN, before asking anything else — never "
             "defer it behind name, emoji, or other setup questions; adopting it "
             "seeds your wiki, starts your recurring research/dream schedules, "

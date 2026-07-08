@@ -135,6 +135,9 @@ async def test_prompt_fragment(ctx, store):
     # for a mission FIRST — before the onboarding checklist's name/emoji —
     # and bridges the adopted mission into identity via update_self
     assert "FIRST exchange" in empty and "before name or emoji" in empty
+    # 0.4.3: the ask renews on every reply until a mission lands, with fresh
+    # framing each time — a skipped first ask must not go silent forever
+    assert "EVERY reply" in empty and "fresh framing" in empty
     assert "update_self" in empty
     assert "IN THAT SAME TURN" in empty and "never" in empty
 
