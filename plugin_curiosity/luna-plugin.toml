@@ -2,7 +2,7 @@
 # Keep in sync with PluginManifest in __init__.py.
 
 name = "plugin-curiosity"
-version = "0.4.3"
+version = "0.4.4"
 description = "Mission-driven curiosity: research, wiki-building, nightly dreams, proactive reflections."
 entry = "plugin_curiosity"
 sdk_version = "0"
