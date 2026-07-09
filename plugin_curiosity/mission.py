@@ -24,7 +24,7 @@ from sqlalchemy import select, update
 
 from luna_sdk import PluginContext, ToolDef
 
-from . import dream, research
+from . import dream, research, review
 from .models import Mission
 
 log = logging.getLogger("plugin-curiosity")
@@ -52,11 +52,27 @@ MISSION_SCHEDULES: list[dict[str, str]] = [
         "action_type": "agent_prompt",
         "target": dream.DREAM_TARGET,
     },
+    # 8.2: the weekly scoreboard turn — goals scored, setup audited, one ask.
+    # Monday 09:30 keeps it clear of the 09:00 daily research fire.
+    {
+        "name": "curiosity-weekly-review",
+        "schedule_expr": "every monday at 09:30",
+        "action_type": "agent_prompt",
+        "target": review.WEEKLY_REVIEW_TARGET,
+    },
 ]
 
 # Wiki stubs seeded on mission_set: a hub page (holds the statement) linking
 # to starter stubs the research loop will fill.
-_STUB_SLUGS = ("mission-domain", "mission-open-questions", "mission-metrics")
+_STUB_SLUGS = (
+    "mission-domain",
+    "mission-open-questions",
+    "mission-metrics",
+    # 8.2: the goal ledger's owner-readable mirror (goals.py rebuilds it on
+    # every goal_set/goal_update; the stub just makes the link resolvable
+    # from day one)
+    "mission-goals",
+)
 
 
 def _mission_dict(m: Mission) -> dict[str, Any]:
@@ -389,7 +405,15 @@ def prompt_fragment(mission: dict[str, Any] | None) -> str:
     return (
         f"Curiosity: your mission — {mission['statement']} (autonomy rung "
         f"{mission['autonomy_rung']}/4, risk ceiling {mission['risk_ceiling']}). "
-        "You own this mission. Teach yourself the domain: keep the wiki current "
-        "(wiki_* tools), note open questions, and share grounded insights when "
-        "they matter. Use mission_refine as your understanding sharpens. " + rails
+        "You OWN this mission and you are relentless about it: you keep a goal "
+        "ledger ([[mission-goals]] — goal_set / goal_update / goal_list), you "
+        "advance a goal every day, and you drive toward CHANGE, not just "
+        "understanding. Teach yourself the domain (wiki_* tools, open "
+        "questions), but never stop at suggestions — when you see a way to "
+        "make a real difference, propose the action YOU will take and ask for "
+        "the go-ahead (or take it, within your autonomy rung). When a "
+        "capability would let you do more — a plugin from the marketplace, a "
+        "connected channel (WhatsApp, email) to reach the owner off-platform — "
+        "say so plainly: 'install X / connect me and I can do Y'. Use "
+        "mission_refine as your understanding sharpens. " + rails
     )

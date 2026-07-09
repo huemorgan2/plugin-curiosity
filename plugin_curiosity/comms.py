@@ -181,7 +181,9 @@ async def share(
                 "instead of sharing."
             )
         }
-    if kind not in ("routine", "kickoff", "dream"):
+    # "review" (8.2): the weekly mission review — cadence is structural (the
+    # weekly trigger), so like kickoff/dream it bypasses the routine daily cap.
+    if kind not in ("routine", "kickoff", "dream", "review"):
         kind = "routine"
 
     # drain first so an overnight queued thought posts before today's is judged
@@ -214,8 +216,14 @@ async def share(
 
 
 def register_tools(ctx: PluginContext, reflections: ReflectionLog) -> None:
-    async def _share(body: str, title: str = "Reflection") -> dict[str, Any]:
-        return await share(ctx, reflections, body=body, title=title, kind="routine")
+    async def _share(
+        body: str, title: str = "Reflection", kind: str = "routine"
+    ) -> dict[str, Any]:
+        # agent-facing kinds only: kickoff/dream cadence is owned by their
+        # structural call sites, not the model's judgment
+        if kind not in ("routine", "review"):
+            kind = "routine"
+        return await share(ctx, reflections, body=body, title=title, kind=kind)
 
     ctx.tool_registry.register(
         "plugin-curiosity",
@@ -227,7 +235,9 @@ def register_tools(ctx: PluginContext, reflections: ReflectionLog) -> None:
                 "or an http(s) source. Budget: at most one routine reflection "
                 "per day, and thoughts in quiet hours (21:00–08:00) queue "
                 "until morning — share only what genuinely matters and record "
-                "the rest in the wiki."
+                "the rest in the wiki. kind='review' is reserved for the "
+                "weekly mission review turn (exempt from the daily cap; never "
+                "use it for ordinary insights)."
             ),
             parameters={
                 "type": "object",
@@ -240,6 +250,12 @@ def register_tools(ctx: PluginContext, reflections: ReflectionLog) -> None:
                         "type": "string",
                         "description": "Short label for the collapsed line.",
                         "default": "Reflection",
+                    },
+                    "kind": {
+                        "type": "string",
+                        "enum": ["routine", "review"],
+                        "default": "routine",
+                        "description": "'review' ONLY from the weekly mission-review turn.",
                     },
                 },
                 "required": ["body"],

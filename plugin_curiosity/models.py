@@ -65,4 +65,41 @@ class Reflection(Base):
     )
 
 
-ALL_TABLES = (Mission.__table__, Reflection.__table__)
+class Goal(Base):
+    """One self-set goal in the pursuit of the mission (phase 8.2).
+
+    Luna commits to goals (goal_set), reports movement (goal_update), and the
+    weekly review scores them. `status`: "active" | "done" | "stalled" |
+    "dropped". `target_date` is free-form text ("2026-07-20", "end of July") —
+    the agent reasons about it; nothing fires on it.
+    """
+
+    __tablename__ = "curiosity_goals"
+
+    id: Mapped[_uuid.UUID] = mapped_column(UUID(), primary_key=True, default=_uuid.uuid4)
+    statement: Mapped[str] = mapped_column(Text, nullable=False)
+    why: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    target_date: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="active", nullable=False, index=True)
+    progress_note: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+
+class Flag(Base):
+    """Tiny key/value state register (phase 8.1: `install_kickoff_sent`)."""
+
+    __tablename__ = "curiosity_flags"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+
+ALL_TABLES = (Mission.__table__, Reflection.__table__, Goal.__table__, Flag.__table__)

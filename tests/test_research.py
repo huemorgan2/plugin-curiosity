@@ -72,14 +72,17 @@ async def test_sync_updates_stale_target_in_place(ctx):
     assert updated[0]["target"] == research.DAILY_RESEARCH_TARGET
     # only the drifted field is sent — the schedule was already current
     assert "schedule_expr" not in updated[0]
-    # the dream trigger was missing -> created; research updated, not recreated
-    assert {c["name"] for c in ctx.tool_registry.trigger_created} == {"curiosity-nightly-dream"}
+    # dream + weekly review were missing -> created; research updated in place
+    assert {c["name"] for c in ctx.tool_registry.trigger_created} == {
+        "curiosity-nightly-dream",
+        "curiosity-weekly-review",
+    }
     assert "curiosity-daily-research" in r["schedules"]
 
     # second set: everything current -> no churn
     await call(ctx, "mission_set", statement="ship the app")
     assert len(ctx.tool_registry.trigger_updated) == 1
-    assert len(ctx.tool_registry.trigger_created) == 1
+    assert len(ctx.tool_registry.trigger_created) == 2
 
 
 @pytest.mark.asyncio
