@@ -4,6 +4,10 @@ The handler runs against the real hook contract on new cores, but the tests
 exercise it directly with fake section objects — the contract (only reorder,
 never touch foreign text) is enforced and tested core-side in luna's
 tests/025-prompt-assemble; here we assert the handler's own behavior.
+
+v2 semantics (after live QA): the onboarding addendum is a plugin-onboarding
+section near the END of the prompt, where recency wins — so the missionless
+fragment moves to immediately AFTER the onboarding section, not before it.
 """
 
 from __future__ import annotations
@@ -31,53 +35,79 @@ def _plugin_with_mission(mission) -> CuriosityPlugin:
 
 
 @pytest.mark.asyncio
-async def test_missionless_moves_own_sections_before_onboarding():
+async def test_missionless_moves_own_sections_after_onboarding():
+    """Realistic shape: the addendum is a plugin-onboarding section that sits
+    BEFORE the curiosity fragment only because of load order, with other
+    plugin sections in between. The fragment must land directly after it."""
     p = _plugin_with_mission(None)
-    core, tools, own, onboarding, pers = (
+    core, pers, onboarding, wiki, own = (
         _sec("core"),
-        _sec("core"),
+        _sec("core.personality"),
+        _sec("plugin-onboarding", "setup checklist"),
+        _sec("plugin-wiki"),
         _sec("plugin-curiosity", "mission ask"),
+    )
+    hctx = types.SimpleNamespace(sections=[core, pers, onboarding, wiki, own])
+    await p._reorder_prompt(hctx)
+    assert hctx.sections == [core, pers, onboarding, own, wiki]
+
+
+@pytest.mark.asyncio
+async def test_core_onboarding_anchor_supported():
+    """Cores that pass the addendum as a core section (source
+    core.onboarding) anchor the same way: fragment directly after it."""
+    p = _plugin_with_mission(None)
+    core, onboarding, pers, own = (
+        _sec("core"),
         _sec("core.onboarding"),
         _sec("core.personality"),
+        _sec("plugin-curiosity", "mission ask"),
     )
-    hctx = types.SimpleNamespace(sections=[core, tools, onboarding, pers, own])
+    hctx = types.SimpleNamespace(sections=[core, onboarding, pers, own])
     await p._reorder_prompt(hctx)
-    assert hctx.sections == [core, tools, own, onboarding, pers]
+    assert hctx.sections == [core, onboarding, own, pers]
 
 
 @pytest.mark.asyncio
-async def test_personality_is_the_fallback_anchor():
+async def test_fragment_already_after_onboarding_is_stable():
     p = _plugin_with_mission(None)
-    core, own, pers = _sec("core"), _sec("plugin-curiosity"), _sec("core.personality")
-    hctx = types.SimpleNamespace(sections=[core, pers, own])
-    await p._reorder_prompt(hctx)
-    assert hctx.sections == [core, own, pers]
-
-
-@pytest.mark.asyncio
-async def test_no_anchor_keeps_appended_position():
-    p = _plugin_with_mission(None)
-    core, own = _sec("core"), _sec("plugin-curiosity")
-    hctx = types.SimpleNamespace(sections=[core, own])
-    await p._reorder_prompt(hctx)
-    assert hctx.sections == [core, own]
-
-
-@pytest.mark.asyncio
-async def test_mission_set_leaves_order_alone():
-    p = _plugin_with_mission({"statement": "grow signups"})
-    core, onboarding, own = _sec("core"), _sec("core.onboarding"), _sec("plugin-curiosity")
+    core, onboarding, own = _sec("core"), _sec("plugin-onboarding"), _sec("plugin-curiosity")
     hctx = types.SimpleNamespace(sections=[core, onboarding, own])
     await p._reorder_prompt(hctx)
     assert hctx.sections == [core, onboarding, own]
 
 
 @pytest.mark.asyncio
+async def test_no_onboarding_anchor_leaves_order_alone():
+    """Setup complete (no addendum) but missionless: appended-at-end is
+    already maximal recency — the handler must not move anything."""
+    p = _plugin_with_mission(None)
+    core, pers, own, wiki = (
+        _sec("core"),
+        _sec("core.personality"),
+        _sec("plugin-curiosity"),
+        _sec("plugin-wiki"),
+    )
+    hctx = types.SimpleNamespace(sections=[core, pers, own, wiki])
+    await p._reorder_prompt(hctx)
+    assert hctx.sections == [core, pers, own, wiki]
+
+
+@pytest.mark.asyncio
+async def test_mission_set_leaves_order_alone():
+    p = _plugin_with_mission({"statement": "grow signups"})
+    core, own, onboarding = _sec("core"), _sec("plugin-curiosity"), _sec("plugin-onboarding")
+    hctx = types.SimpleNamespace(sections=[core, own, onboarding])
+    await p._reorder_prompt(hctx)
+    assert hctx.sections == [core, own, onboarding]
+
+
+@pytest.mark.asyncio
 async def test_handler_never_touches_foreign_sections():
     p = _plugin_with_mission(None)
-    foreign = [_sec("core", "a"), _sec("plugin-wiki", "b"), _sec("core.onboarding", "c")]
+    foreign = [_sec("core", "a"), _sec("plugin-onboarding", "b"), _sec("plugin-wiki", "c")]
     own = _sec("plugin-curiosity", "mine")
-    hctx = types.SimpleNamespace(sections=[*foreign, own])
+    hctx = types.SimpleNamespace(sections=[own, *foreign])
     await p._reorder_prompt(hctx)
     # every foreign object survives, identical and in relative order
     assert [s for s in hctx.sections if s is not own] == foreign

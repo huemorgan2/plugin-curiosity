@@ -173,6 +173,17 @@ class FakeConfigRegistry:
         return _Section()
 
 
+@pytest.fixture(autouse=True)
+def _reset_kickoff_claim():
+    """The install-kickoff claim is module state (dedupes the double on-load
+    run inside one process) — reset it so tests stay independent."""
+    import plugin_curiosity as pc
+
+    pc._kickoff_claimed = False
+    yield
+    pc._kickoff_claimed = False
+
+
 @pytest.fixture
 def ctx(store, sf):
     """Fake PluginContext with recording seams, tools pre-registered."""

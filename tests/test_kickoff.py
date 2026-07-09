@@ -60,6 +60,71 @@ async def test_core_without_send_retries_next_load(kctx, store, sf):
     assert len(_kickoff_posts(kctx)) == 1
 
 
+@pytest.mark.asyncio
+async def test_soft_error_result_does_not_burn_flag(kctx, store, sf):
+    """post_muted_message reports failures as {"error": ...} WITHOUT raising —
+    notably "no target conversation" on a zero-conversation fresh install.
+    The flag must survive for a retry on a later load."""
+
+    async def send(title, content, **kw):
+        return {"error": "no target conversation", "responded": False}
+
+    kctx.send_muted_message = send
+    assert await maybe_send_install_kickoff(kctx, store) is False
+    assert await _flag_get(sf, INSTALL_KICKOFF_FLAG) is None
+
+    async def send_ok(title, content, **kw):
+        kctx.muted_posts.append({"title": title, "content": content, **kw})
+        return {"ok": True}
+
+    kctx.send_muted_message = send_ok
+    assert await maybe_send_install_kickoff(kctx, store) is True
+    assert await _flag_get(sf, INSTALL_KICKOFF_FLAG) == "1"
+
+
+@pytest.mark.asyncio
+async def test_concurrent_double_load_sends_once(kctx, store, sf):
+    """QA found the on-load work running twice in one process (bootstrap +
+    serving loop) and both runs interleaving inside the send-then-flag window
+    → the moment posted twice. The in-process claim must let exactly one
+    through."""
+    import asyncio
+
+    async def slow_send(title, content, **kw):
+        await asyncio.sleep(0.05)  # hold the send open so the runs interleave
+        kctx.muted_posts.append({"title": title, "content": content, **kw})
+        return {"ok": True}
+
+    kctx.send_muted_message = slow_send
+    results = await asyncio.gather(
+        maybe_send_install_kickoff(kctx, store),
+        maybe_send_install_kickoff(kctx, store),
+    )
+    assert sorted(results) == [False, True]
+    assert len(_kickoff_posts(kctx)) == 1
+    assert await _flag_get(sf, INSTALL_KICKOFF_FLAG) == "1"
+
+
+@pytest.mark.asyncio
+async def test_failed_send_releases_the_claim(kctx, store, sf):
+    """A soft-failed send (zero conversations) must release the in-process
+    claim so a later load in the SAME process can retry."""
+
+    async def send_fail(title, content, **kw):
+        return {"error": "no target conversation"}
+
+    kctx.send_muted_message = send_fail
+    assert await maybe_send_install_kickoff(kctx, store) is False
+
+    async def send_ok(title, content, **kw):
+        kctx.muted_posts.append({"title": title, "content": content, **kw})
+        return {"ok": True}
+
+    kctx.send_muted_message = send_ok
+    assert await maybe_send_install_kickoff(kctx, store) is True
+    assert len(_kickoff_posts(kctx)) == 1
+
+
 def test_install_kickoff_content_asks_for_mission_now():
     from plugin_curiosity.research import INSTALL_KICKOFF_CONTENT
 

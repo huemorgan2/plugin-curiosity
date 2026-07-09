@@ -150,15 +150,24 @@ on the question.
 """
 
 
-async def run_install_kickoff(ctx: PluginContext) -> None:
+async def run_install_kickoff(ctx: PluginContext) -> bool:
     """Post the one-time install kickoff moment (no tools — the reaction turn
-    just speaks). The caller owns the once-only flag."""
-    await ctx.send_muted_message(
+    just speaks). Returns True only if the moment actually landed: on a
+    zero-conversation fresh install post_muted_message reports
+    {"error": "no target conversation"} WITHOUT raising, and the caller must
+    not burn the once-only flag on that (the onboarding greeting carries the
+    mission ask there; the kickoff retries on a later load for the
+    installed-into-an-existing-Luna case)."""
+    result = await ctx.send_muted_message(
         INSTALL_KICKOFF_TITLE,
         INSTALL_KICKOFF_CONTENT,
         channel="moment",
         source="curiosity",
     )
+    if isinstance(result, dict) and result.get("error"):
+        log.info("install kickoff not delivered: %s", result["error"])
+        return False
+    return True
 
 
 async def run_kickoff(ctx: PluginContext, statement: str) -> None:

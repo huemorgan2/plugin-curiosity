@@ -134,7 +134,7 @@ async def test_prompt_fragment(ctx, store):
     # mission-first onboarding (phase 6): the no-mission state actively asks
     # for a mission FIRST — before the onboarding checklist's name/emoji —
     # and bridges the adopted mission into identity via update_self
-    assert "FIRST exchange" in empty and "before name or emoji" in empty
+    assert "very FIRST question" in empty and "OVERRIDES its ordering" in empty
     # 0.4.3: the ask renews on every reply until a mission lands, with fresh
     # framing each time — a skipped first ask must not go silent forever
     assert "EVERY reply" in empty and "fresh framing" in empty

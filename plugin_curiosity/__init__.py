@@ -33,6 +33,14 @@ SYNC_ON_LOAD_DELAY_S = 15.0
 
 INSTALL_KICKOFF_FLAG = "install_kickoff_sent"
 
+# In-process claim for the install kickoff. The on-load work can run twice in
+# one process (bootstrap loop + serving loop), and the DB flag is only written
+# AFTER a delivered send — QA caught the two runs interleaving in that window
+# and posting the moment twice. The claim's check-and-set has no await between
+# check and set, so on a single thread exactly one runner wins; the claim is
+# released only on a failed send so a later load can retry.
+_kickoff_claimed = False
+
 # Loop-identity guard for the one-time on-load work. Under `luna serve` the
 # plugin's on_load runs inside a throwaway bootstrap loop (asyncio.run in
 # cli.py) — tasks created there die when that loop is disposed — and the
@@ -75,7 +83,13 @@ async def maybe_send_install_kickoff(ctx: PluginContext, store: MissionStore) ->
         return False
     if not callable(getattr(ctx, "send_muted_message", None)):
         return False
-    await research.run_install_kickoff(ctx)
+    global _kickoff_claimed
+    if _kickoff_claimed:
+        return False
+    _kickoff_claimed = True
+    if not await research.run_install_kickoff(ctx):
+        _kickoff_claimed = False
+        return False  # e.g. zero conversations on a fresh install — retry later
     await _flag_set(sf, INSTALL_KICKOFF_FLAG)
     log.info("install kickoff moment posted")
     return True
@@ -104,12 +118,17 @@ def schedule_on_load_work(
                 log.info("drained %s queued thought(s) on load", result["drained"])
         except Exception:  # noqa: BLE001
             log.warning("queued-thought drain on load failed", exc_info=True)
+        # The sleep does double duty: it lets late-loading plugins settle AND
+        # it outlives the throwaway bootstrap loop — a _run() scheduled there
+        # is cancelled HERE, before the kickoff send, instead of dying mid-send
+        # with the moment posted but no reaction/flag (QA run 2). Only the
+        # serving-loop task reaches the send.
+        await asyncio.sleep(SYNC_ON_LOAD_DELAY_S)
         try:
             await maybe_send_install_kickoff(ctx, store)
         except Exception:  # noqa: BLE001
             log.warning("install kickoff on load failed", exc_info=True)
         try:
-            await asyncio.sleep(SYNC_ON_LOAD_DELAY_S)
             if await store.get() is None:
                 return  # no mission — mission_set will register schedules
             result = await mission._sync_schedules(ctx)
@@ -167,29 +186,34 @@ class CuriosityPlugin(LunaPlugin):
 
     async def _reorder_prompt(self, hctx) -> None:
         """prompt.assemble handler: while MISSIONLESS, move this plugin's own
-        section(s) to just before the onboarding addendum (fallback: before
-        the personality block) so the mission ask outranks the onboarding
-        checklist by position. With a mission set: leave order alone."""
+        section(s) to immediately AFTER the onboarding addendum, so the
+        mission-first override is the last word on the setup flow it
+        contradicts (the addendum is a plugin-onboarding section near the END
+        of the prompt — recency is what wins there, not primacy; QA showed a
+        fragment moved earlier LOSES to the checklist). No onboarding section
+        → leave order alone (appended-at-end is already maximal recency).
+        With a mission set: leave order alone."""
         if self._store is None or (await self._store.get()) is not None:
             return
         secs = hctx.sections
         own = [s for s in secs if getattr(s, "source", "") == "plugin-curiosity"]
         if not own:
             return
-        for s in own:
-            secs.remove(s)
-        idx = next(
+        idx = max(
             (
                 i
                 for i, s in enumerate(secs)
-                if getattr(s, "source", "") in ("core.onboarding", "core.personality")
+                if getattr(s, "source", "") in ("plugin-onboarding", "core.onboarding")
             ),
-            None,
+            default=None,
         )
         if idx is None:
-            secs.extend(own)  # no anchor — restore the appended position
             return
-        secs[idx:idx] = own
+        anchor = secs[idx]
+        for s in own:
+            secs.remove(s)
+        pos = secs.index(anchor) + 1
+        secs[pos:pos] = own
 
     async def prompt_sections(self) -> list[str]:
         if self._store is None:
