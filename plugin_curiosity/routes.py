@@ -45,8 +45,19 @@ def register_routes(app, ctx):
     # the same way); the app object has no add_event_handler.
     def _on_startup() -> None:
         from . import schedule_on_load_work
+        from .loops import LoopStore
+        from .scopes import ScopeStore
 
-        schedule_on_load_work(ctx, store, reflections)
+        # 9A/9B QA: this call site is the run that SURVIVES under uvicorn —
+        # omitting the stores here silently skipped the charter/loop mirror
+        # seeding even though on_load passed them.
+        schedule_on_load_work(
+            ctx,
+            store,
+            reflections,
+            ScopeStore(ctx.db_session_factory),
+            LoopStore(ctx.db_session_factory),
+        )
 
     try:
         app.router.on_startup.append(_on_startup)

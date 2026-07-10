@@ -18,6 +18,7 @@ async def call(ctx, tool: str, **kwargs):
 @pytest.fixture(autouse=True)
 def fast_kickoff(monkeypatch):
     monkeypatch.setattr(research, "KICKOFF_DELAY_S", 0)
+    monkeypatch.setattr(research, "KICKOFF_RETRY_S", 0)
 
 
 @pytest.mark.asyncio
@@ -30,8 +31,9 @@ async def test_mission_set_spawns_kickoff_moment(ctx):
     assert post["channel"] == "moment"
     assert post["source"] == "curiosity"
     assert "grow signups" in post["content"]
-    # the artifact shape is instructed: brief + quick win + open questions
-    for marker in ("Brief", "Quick win", "Open questions"):
+    # the artifact shape is instructed (9C setup arc): brief + charter +
+    # timeline + open questions
+    for marker in ("Brief", "My charter", "My goals", "Open questions"):
         assert marker in post["content"]
 
 
@@ -47,6 +49,40 @@ async def test_kickoff_tools_are_research_scoped(ctx):
     assert "share_thought" not in tools
     # playbook authoring is chat_only — never allowlisted in a muted turn
     assert not any(t.startswith("playbook") for t in tools)
+
+
+@pytest.mark.asyncio
+async def test_kickoff_retries_a_dead_turn(ctx):
+    """9D run-13: the kickoff turn died to a transient API ConnectTimeout and
+    the mission silently stranded at S0. post_muted_message reports the dead
+    turn via an ``error`` key (no exception) — kickoff must retry."""
+    calls = []
+    real = ctx.send_muted_message
+
+    async def flaky(title, content, **kw):
+        calls.append(title)
+        if len(calls) < 3:
+            return {"responded": False, "error": "turn failed: APITimeoutError"}
+        return await real(title, content, **kw)
+
+    ctx.send_muted_message = flaky
+    await research.run_kickoff(ctx, "grow signups")
+    assert len(calls) == 3  # two dead turns, third lands
+    (post,) = [p for p in ctx.muted_posts if p["title"] == research.KICKOFF_TITLE]
+    assert "grow signups" in post["content"]
+
+
+@pytest.mark.asyncio
+async def test_kickoff_gives_up_after_bounded_attempts(ctx):
+    calls = []
+
+    async def dead(title, content, **kw):
+        calls.append(title)
+        return {"responded": False, "error": "turn failed: APITimeoutError"}
+
+    ctx.send_muted_message = dead
+    await research.run_kickoff(ctx, "grow signups")
+    assert len(calls) == research.KICKOFF_ATTEMPTS  # bounded, no infinite loop
 
 
 def test_daily_research_target_is_wired():

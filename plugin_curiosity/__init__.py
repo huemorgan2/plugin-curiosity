@@ -19,10 +19,12 @@ import logging
 
 from luna_sdk import LunaPlugin, PluginContext, PluginManifest
 
-from . import comms, goals, mission, research
+from . import comms, goals, loops, mission, research, scopes
 from .goals import GoalStore
+from .loops import LoopStore
 from .mission import MissionStore, prompt_fragment, register_tools
-from .models import ALL_TABLES, Flag
+from .models import ALL_TABLES, Flag, apply_additive_migrations
+from .scopes import ScopeStore
 
 log = logging.getLogger("plugin-curiosity")
 
@@ -96,13 +98,18 @@ async def maybe_send_install_kickoff(ctx: PluginContext, store: MissionStore) ->
 
 
 def schedule_on_load_work(
-    ctx: PluginContext, store: MissionStore, reflections: comms.ReflectionLog
+    ctx: PluginContext,
+    store: MissionStore,
+    reflections: comms.ReflectionLog,
+    scope_store: ScopeStore | None = None,
+    loop_store: LoopStore | None = None,
 ) -> None:
     """Schedule the one-time on-load work on the current loop: drain any
     overnight-queued thoughts, send the one-time install kickoff if the loop
     is still missionless (8.1C), then refresh the mission's recurring triggers
     (a plugin upgrade that changes a trigger target or fire time must reach
-    an existing mission without waiting for a mission_set/mission_refine)."""
+    an existing mission without waiting for a mission_set/mission_refine) and
+    seed the [[role-charter]] mirror for a pre-9A mission (9A upgrade path)."""
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
@@ -136,6 +143,20 @@ def schedule_on_load_work(
                 log.info("schedule sync on load: %s", result)
         except Exception:  # noqa: BLE001
             log.warning("schedule sync on load failed", exc_info=True)
+        if scope_store is not None:
+            try:
+                result = await scopes.ensure_charter_mirror(ctx, scope_store)
+                if result not in ("already present", "no mission"):
+                    log.info("charter mirror seed on load: %s", result)
+            except Exception:  # noqa: BLE001
+                log.warning("charter mirror seed on load failed", exc_info=True)
+        if loop_store is not None:
+            try:
+                result = await loops.ensure_loop_mirrors(ctx, loop_store)
+                if result not in ("already present", "no mission"):
+                    log.info("loop mirrors seed on load: %s", result)
+            except Exception:  # noqa: BLE001
+                log.warning("loop mirrors seed on load failed", exc_info=True)
 
     # keep a strong ref — the loop itself only holds weak refs to tasks, and
     # a task sleeping through boot would otherwise be GC-able mid-flight
@@ -145,7 +166,7 @@ def schedule_on_load_work(
 class CuriosityPlugin(LunaPlugin):
     manifest = PluginManifest(
         name="plugin-curiosity",
-        version="0.6.0",
+        version="0.7.0",
         description=(
             "Mission-driven curiosity: research, wiki-building, nightly dreams, "
             "self-set goals, weekly mission reviews, proactive reflections."
@@ -158,17 +179,26 @@ class CuriosityPlugin(LunaPlugin):
     def __init__(self) -> None:
         self._store: MissionStore | None = None
         self._goals: GoalStore | None = None
+        self._scopes: ScopeStore | None = None
+        self._loops: LoopStore | None = None
         self._reflections: comms.ReflectionLog | None = None
 
     async def on_load(self, ctx: PluginContext) -> None:
         async with ctx.engine.begin() as conn:
             for table in ALL_TABLES:
                 await conn.run_sync(table.create, checkfirst=True)
+            added = await conn.run_sync(apply_additive_migrations)
+            if added:
+                log.info("additive migration: added mission columns %s", added)
         self._store = MissionStore(ctx.db_session_factory)
         self._goals = GoalStore(ctx.db_session_factory)
+        self._scopes = ScopeStore(ctx.db_session_factory)
+        self._loops = LoopStore(ctx.db_session_factory)
         self._reflections = comms.ReflectionLog(ctx.db_session_factory)
         register_tools(ctx, self._store)
         goals.register_tools(ctx, self._goals)
+        scopes.register_tools(ctx, self._scopes)
+        loops.register_tools(ctx, self._loops)
         comms.register_tools(ctx, self._reflections)
         self._ctx = ctx
         # 8.1B: prompt primacy — on cores with the prompt.assemble hook, a
@@ -181,8 +211,10 @@ class CuriosityPlugin(LunaPlugin):
                 hooks.register("prompt.assemble", self._reorder_prompt, priority=60)
             except Exception:  # noqa: BLE001
                 log.warning("prompt.assemble registration failed", exc_info=True)
-        schedule_on_load_work(ctx, self._store, self._reflections)
-        log.info("plugin-curiosity loaded (tools=8)")
+        schedule_on_load_work(
+            ctx, self._store, self._reflections, self._scopes, self._loops
+        )
+        log.info("plugin-curiosity loaded (tools=19)")
 
     async def _reorder_prompt(self, hctx) -> None:
         """prompt.assemble handler: while MISSIONLESS, move this plugin's own
@@ -218,4 +250,9 @@ class CuriosityPlugin(LunaPlugin):
     async def prompt_sections(self) -> list[str]:
         if self._store is None:
             return []
-        return [prompt_fragment(await self._store.get())]
+        mission = await self._store.get()
+        phase = None
+        if mission is not None and self._scopes is not None:
+            state = await self._scopes.state()
+            phase = state["agent_phase"] if state else None
+        return [prompt_fragment(mission, phase)]

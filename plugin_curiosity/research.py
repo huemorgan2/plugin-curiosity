@@ -24,6 +24,14 @@ import logging
 
 from luna_sdk import PluginContext
 
+from .prompts import (
+    ASK_SHAPE,
+    CANONICAL_EXAMPLE,
+    LOOP_DISCIPLINE,
+    PHASE_CHECK,
+    TALENTED_HIRE_LAW,
+)
+
 log = logging.getLogger("plugin-curiosity")
 
 # Allowlist for the kickoff reaction turn. share_thought is deliberately
@@ -50,6 +58,15 @@ KICKOFF_TOOLS = [
     "marketplace_search",
     "wa_status",
     "connector_list_connected",
+    # 9C: the kickoff IS the setup arc's S0→S2 — it charters scopes, opens
+    # loops for its own questions, logs first value, and stamps the stage.
+    "scope_set",
+    "scope_update",
+    "scope_list",
+    "stage_set",
+    "loop_open",
+    "loop_list",
+    "value_log_add",
 ]
 
 KICKOFF_TITLE = "Mission kickoff"
@@ -58,72 +75,113 @@ KICKOFF_TITLE = "Mission kickoff"
 # kickoff reaction turn starts competing for the loop (tests set this to 0)
 KICKOFF_DELAY_S = 3.0
 
-_KICKOFF_CONTENT = """\
+# the kickoff turn is the ONLY driver of the S0→S2 arc; if it dies to a
+# transient model-API failure the owner silently never gets a charter. Retry
+# with real spacing (tests set the delay to 0).
+KICKOFF_ATTEMPTS = 3
+KICKOFF_RETRY_S = 90.0
+
+_KICKOFF_CONTENT = (
+    """\
 Your mission was just set: {statement}
 
-Do the mission kickoff NOW, in this turn — the owner should feel that a
-driven agent just took ownership, not that a librarian filed a note. Keep it
-tight (about 10-14 tool calls; depth comes from the daily research schedule):
-
-1. Run 2-3 web_search queries on the core of the mission; web_fetch the one or
-   two most substantive results.
-2. Write what you learned into the wiki: flesh out [[mission-domain]] with a
-   first researched pass (wiki_patch), and record each real source with
-   wiki_cite. No uncited claims.
-3. Record 3-5 sharp open questions to pursue next (wiki_ask), and put the ones
-   that frame the mission on [[mission-open-questions]].
-4. COMMIT to 2-3 concrete goals with goal_set — specific, checkable outcomes
-   YOU will drive, each with a target date. These are your commitments, not
-   suggestions; the daily research passes work them and the weekly review
-   scores them.
-5. Scan your own setup against the mission: if you have marketplace_search,
-   search it with 1-2 mission keywords — is there a plugin that would let you
-   actually DO part of this instead of only reading about it? If you have
-   wa_status or connector_list_connected, check whether you can reach the
-   owner off-platform (WhatsApp / email). Note real gaps for the ask below;
-   skip silently if these tools aren't available.
-6. Then reply to the owner with the **Mission Kickoff** artifact, in this
-   exact shape:
-   - **Brief** — 3-5 lines: the mission in your own words and how you'll
-     attack it.
-   - **Quick win** — ONE concrete, immediately useful insight you just found,
-     with its source URL.
-   - **My goals** — the 2-3 goals you just committed to, with target dates:
-     "Here's what I'm going after."
-   - **Open questions** — the 3-5 questions you recorded.
-   - **Next move** — ONE concrete action YOU will take (a routine you'll
-     schedule, a draft you'll produce, a plugin you want installed, a channel
-     you want connected — "install X and I can actually do Y", "connect me to
-     your WhatsApp so the mission doesn't pause when you close this tab").
-     End with "say go and I'll do it" when it needs the owner, or "already
-     scheduled" when it doesn't. NEVER end on a list of suggestions for the
-     owner to do — end on what YOU will do.
-If a repeatable routine would serve the mission (a weekly scan, a digest),
-fold it into **Next move** or note it as a 'playbook idea' open question
-(playbook tools are chat-only).
+You are in SETUP phase, stage S0 — the setup arc starts NOW, in this turn
+(S0→S2, ~12-16 tool calls; depth comes later, from the daily schedule).
 """
+    + TALENTED_HIRE_LAW
+    + """
+
+S0 — understand it sharper than you were told:
+1. Restate the mission SHARPER than the owner said it — one line; it heads
+   your charter.
+2. Shallow research only: 2-3 web_search, web_fetch the 1-2 most substantive
+   hits; record 2-3 NON-OBVIOUS observations on [[mission-domain]]
+   (wiki_patch + wiki_cite — no uncited claims).
+3. Ask ONLY plan-changing questions (would the answer change your plan? if
+   not, don't ask). Open each one as a loop — loop_open(kind='question'),
+   stating what it unblocks — and record it with wiki_ask. ZERO access asks
+   in this turn.
+
+S1 — inventory what you can reach, deliver first value:
+4. Charter your scopes with scope_set — every area you must become competent
+   in, covering ALL seven kinds (knowledge, people, communication_paths,
+   tools_data_access, workflow_approval, playbooks, routines_feedback).
+5. Inventory what you can use TODAY: marketplace_search 1-2 mission keywords;
+   wa_status / connector_list_connected for off-platform reach — skip
+   silently if a tool isn't available. scope_update anything you verified.
+6. First value pass with those alone. """
+    + CANONICAL_EXAMPLE
+    + """. Timebox: shallow, redirectable passes — stub/summary wiki depth
+   only, NO deep corpus until the owner ratifies this charter. value_log_add
+   anything real you delivered (evidence: the wiki page).
+
+S2 — charter and ratify:
+7. COMMIT to 5-8 dated goals with goal_set — together they must cover EVERY
+   scope; they form a timeline, not a wish list.
+8. stage_set('S2'), then reply with the **Mission Kickoff** artifact:
+   - **Brief** — the mission in your own words, sharper.
+   - **What I found** — the 2-3 non-obvious observations, with sources.
+   - **My charter** — the scopes by kind ([[role-charter]]).
+   - **My goals** — the dated timeline: "by <date>: <goal>", 5-8 entries.
+   - **Access plan** — ranked by unlock-per-human-cost. You will ask for AT
+     MOST ONE at a time, later, riding on delivered value — the shape is
+     always """
+    + ASK_SHAPE
+    + """.
+   - **Open questions** — the plan-changing ones (each already a loop).
+   - **Next move** — ONE concrete action YOU will take. End with "say go and
+     I'll do it" (needs owner) or "already scheduled" (doesn't).
+     NEVER end on a list of suggestions for the owner to do.
+   Close the artifact with: "this is my complete understanding and my road
+   to being great at it — push back now."
+"""
+)
 
 DAILY_RESEARCH_TARGET = (
-    "[curiosity] Daily research pass. You OWN this mission — work it like a "
-    "relentless operator, one focused pass (~10 tool calls).\n"
-    "1. mission_get for your current mission, then goal_list for your goal "
-    "ledger. Pick the ONE goal you can advance TODAY (wiki_list_questions / "
-    "wiki_toc to see where the wiki is thin on it). No goals yet? Commit 2-3 "
-    "with goal_set first.\n"
-    "2. Advance it: web_search, then web_fetch the substantive sources.\n"
-    "3. Record what you learned: wiki_write/wiki_patch the relevant pages, "
-    "wiki_cite every real source, wiki_resolve_question anything you "
-    "answered, wiki_ask new questions you uncovered.\n"
-    "4. goal_update the goal you worked: what moved, in one or two lines. If "
-    "it has stopped moving, say so honestly (status='stalled').\n"
-    "5. End the pass with a share_thought IF you advanced a goal or learned "
-    "something that changes the picture — a one-liner counts: 'Moved <goal>: "
-    "<what changed> [[wiki-page]]'. It enforces the noise budget (1/day, "
-    "quiet hours queue), so a blocked/queued result is fine. Skip only a "
-    "genuinely empty pass.\n"
-    "6. If you notice a repeatable routine worth automating, record it as an "
-    "open question tagged 'playbook idea' — propose the playbook in a normal "
-    "chat turn (playbook tools are chat-only)."
+    "[curiosity] Daily pass. You OWN this mission — one focused pass "
+    "(~10 tool calls). " + PHASE_CHECK + "\n"
+    "0. LOOP PATROL (both phases), before anything else: loop_list your open "
+    "loops. For each loop past its next_nudge_at, act NOW — re-ask it "
+    "REPHRASED, naming the goal it blocks (then loop_nudge it); or try a "
+    "connected channel; or propose a sensible default; or close it with an "
+    "explicit assumption (loop_close, with the reason). UNUSED-GRANT CHECK: "
+    "an answered ask whose grant has no value_log entry yet is a broken "
+    "promise — use the grant and value_log_add the win (linked_ask_id) "
+    "TODAY. BACKFILL CHECK: a request you already voiced (chat, pending "
+    "credential form, connector setup) with NO loop tracking it gets "
+    "loop_open(kind='ask', unlock=..., value_ref=...) RIGHT NOW. "
+    + LOOP_DISCIPLINE + "\n"
+    "SETUP BRANCH (agent_phase='setup'):\n"
+    "1. mission_get, then goal_list. CONFRONT overdue goals first: anything "
+    "past its target date gets replanned, escalated, or dropped TODAY "
+    "(goal_update with the reason) — never carried silently.\n"
+    "2. Pick the ONE goal you can advance TODAY and advance it with a small "
+    "S1-style value pass: web_search / web_fetch, record on the wiki "
+    "(wiki_write/wiki_patch + wiki_cite), stub/summary depth until the "
+    "charter is ratified. scope_update the scope it grew, with evidence.\n"
+    "3. EVENT-DRIVEN REPLAN: if today's learning changes the plan, change "
+    "the plan TODAY (plan_change_note + scope_set/goal_set), not at the "
+    "weekly. A plan that never changes after week 1 means you stopped "
+    "learning.\n"
+    "4. Asks: at most ONE open — the ledger enforces it. The shape is "
+    "always " + ASK_SHAPE + ". Use every grant VISIBLY by the next daily "
+    "pass.\n"
+    "5. goal_update what moved; share_thought a one-liner if anything did: "
+    "'Moved <goal>: <what changed> [[wiki-page]]'. Skip only a genuinely "
+    "empty pass.\n"
+    "WORK BRANCH (agent_phase='work'):\n"
+    "1. mission_get, then goal_list. Keep 2-3 goals rolling — when one "
+    "closes, refill with goal_set in the SAME pass.\n"
+    "2. Execute: advance the top goal through your validated playbooks and "
+    "the agreed approval points — produce output the owner can use, not "
+    "notes about it.\n"
+    "3. Record: wiki updates with citations; goal_update what moved; "
+    "value_log_add real wins with evidence.\n"
+    "4. share_thought ONE goal-cited line: 'Moved <goal>: <what changed> "
+    "[[wiki-page]]'. Skip only a genuinely empty pass.\n"
+    "Both branches: end on what YOU will do next, never on homework for the "
+    "owner. If a repeatable routine is worth automating, record it as an "
+    "open question tagged 'playbook idea' (playbook tools are chat-only)."
 )
 
 
@@ -173,19 +231,37 @@ async def run_install_kickoff(ctx: PluginContext) -> bool:
 async def run_kickoff(ctx: PluginContext, statement: str) -> None:
     """Post the kickoff moment. Runs as a fire-and-forget task from
     mission_set; the short delay lets the mission_set turn finish streaming
-    before the kickoff reaction turn starts competing for the loop."""
+    before the kickoff reaction turn starts competing for the loop.
+
+    post_muted_message swallows turn exceptions and returns an ``error`` key
+    instead (a dead turn otherwise looks like a turn that chose silence), so
+    failure is detected from the result, not an exception. Retrying re-posts
+    the moment message too — acceptable: a failed turn means the first moment
+    was never reacted to, and a lost kickoff strands the mission at S0."""
     await asyncio.sleep(KICKOFF_DELAY_S)
-    try:
-        await ctx.send_muted_message(
-            KICKOFF_TITLE,
-            _KICKOFF_CONTENT.format(statement=statement),
-            channel="moment",
-            source="curiosity",
-            tools=KICKOFF_TOOLS,
-        )
-        log.info("mission kickoff moment posted")
-    except Exception:  # noqa: BLE001
-        log.warning("mission kickoff failed", exc_info=True)
+    for attempt in range(1, KICKOFF_ATTEMPTS + 1):
+        try:
+            result = await ctx.send_muted_message(
+                KICKOFF_TITLE,
+                _KICKOFF_CONTENT.format(statement=statement),
+                channel="moment",
+                source="curiosity",
+                tools=KICKOFF_TOOLS,
+            )
+        except Exception:  # noqa: BLE001
+            log.warning("mission kickoff failed (attempt %s)", attempt, exc_info=True)
+            result = None
+        if result is not None and not result.get("error"):
+            log.info("mission kickoff moment posted")
+            return
+        if attempt < KICKOFF_ATTEMPTS:
+            log.warning(
+                "mission kickoff turn died (attempt %s): %s",
+                attempt,
+                (result or {}).get("error", "exception"),
+            )
+            await asyncio.sleep(KICKOFF_RETRY_S)
+    log.warning("mission kickoff abandoned after %s attempts", KICKOFF_ATTEMPTS)
 
 
 def spawn_kickoff(ctx: PluginContext, statement: str) -> str:

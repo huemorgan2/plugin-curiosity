@@ -24,7 +24,7 @@ from sqlalchemy import select, update
 
 from luna_sdk import PluginContext, ToolDef
 
-from . import dream, research, review
+from . import dream, prompts, research, review
 from .models import Mission
 
 log = logging.getLogger("plugin-curiosity")
@@ -72,6 +72,13 @@ _STUB_SLUGS = (
     # every goal_set/goal_update; the stub just makes the link resolvable
     # from day one)
     "mission-goals",
+    # 9A: the role charter — scopes, stage marker, Plan-changes log
+    # (scopes.py rebuilds it on every scope/stage/phase mutation)
+    "role-charter",
+    # 9B: open loops + the value receipts log (loops.py rebuilds both on
+    # every loop/value mutation)
+    "open-loops",
+    "value-log",
 )
 
 
@@ -356,9 +363,10 @@ def register_tools(ctx: PluginContext, store: MissionStore) -> None:
         ctx.tool_registry.register("plugin-curiosity", tool_def, handler)
 
 
-def prompt_fragment(mission: dict[str, Any] | None) -> str:
-    """The curiosity capability note. With a mission: own it + the rails.
-    Without: know how to get one."""
+def prompt_fragment(mission: dict[str, Any] | None, phase: str | None = None) -> str:
+    """The curiosity capability note. With a mission: own it + the rails,
+    plus the phase posture (9C — setup: the talented hire earning autonomy;
+    work: mastery and toolkit improvement). Without: know how to get one."""
     rails = (
         "Action rails: schedule recurring work with the trigger_* tools (the "
         "clock is external and always-on). When you notice a repeatable action, "
@@ -406,7 +414,7 @@ def prompt_fragment(mission: dict[str, Any] | None) -> str:
             "update_self(field='mission', ...) right away, then continue the "
             "rest of setup. " + rails
         )
-    return (
+    base = (
         f"Curiosity: your mission — {mission['statement']} (autonomy rung "
         f"{mission['autonomy_rung']}/4, risk ceiling {mission['risk_ceiling']}). "
         "You OWN this mission and you are relentless about it: you keep a goal "
@@ -419,5 +427,21 @@ def prompt_fragment(mission: dict[str, Any] | None) -> str:
         "capability would let you do more — a plugin from the marketplace, a "
         "connected channel (WhatsApp, email) to reach the owner off-platform — "
         "say so plainly: 'install X / connect me and I can do Y'. Use "
-        "mission_refine as your understanding sharpens. " + rails
+        "mission_refine as your understanding sharpens. "
     )
+    if phase == "work":
+        posture = (
+            "You are in WORK phase: the routine is yours — run it with "
+            "mastery, keep 2-3 goals rolling, and every week leave the "
+            "toolkit better than you found it (a playbook diff, a cadence "
+            "change, a plugin worth adding). Charter upkeep continues: record "
+            "answers as scope evidence and keep [[role-charter]] honest. "
+        )
+    else:
+        posture = (
+            "You are in SETUP phase: " + prompts.TALENTED_HIRE_LAW + " "
+            "Corollary: work in small, redirectable increments — stub/summary "
+            "depth until the owner ratifies your charter, so a pivot never "
+            "wastes a week. " + prompts.LOOP_DISCIPLINE + " "
+        )
+    return base + posture + rails
