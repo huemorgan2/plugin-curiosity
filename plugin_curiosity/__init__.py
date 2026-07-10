@@ -15,6 +15,12 @@ mission ask outranks the setup checklist by position, not just persuasion.
 like?) frames every setup surface; the agent authors its OWN setup heartbeat
 trigger; the on-load safety net notices a setup-phase mission with no
 heartbeat and nudges — it never creates the trigger itself.
+
+9.002: wiki + scheduler become HARD dependencies (manifest depends_on + a
+runtime gate — knowledge lives in wiki pages, drive lives in triggers;
+without them curiosity is meaningless, so it goes inert instead of degrading
+surface by surface), and the agent's inner workings get an owner-facing
+Missions pane (sidebar section + static iframe app served from routes).
 """
 
 from __future__ import annotations
@@ -25,12 +31,18 @@ from datetime import UTC, datetime
 
 from luna_sdk import LunaPlugin, PluginContext, PluginManifest
 
-from . import comms, goals, loops, mission, research, scopes
+try:  # cores with plugin-owned panes (the 9.002 target) export it
+    from luna_sdk import SidebarSection
+except ImportError:  # pragma: no cover - older core: no pane, plugin still loads
+    SidebarSection = None
+
+from . import comms, goals, loops, mission, research, scopes, telemetry
 from .goals import GoalStore
 from .loops import LoopStore
 from .mission import MissionStore, prompt_fragment, register_tools
 from .models import ALL_TABLES, Flag, apply_additive_migrations
 from .scopes import ScopeStore
+from .telemetry import HeartbeatStore
 
 log = logging.getLogger("plugin-curiosity")
 
@@ -44,6 +56,56 @@ INSTALL_KICKOFF_FLAG = "install_kickoff_sent"
 # 9.001G: at most one heartbeat nudge per UTC day — restarts must not turn
 # the safety net into a nag.
 HEARTBEAT_NUDGE_FLAG = "heartbeat_nudge_date"
+
+# 9.002A: the hard-dependency gate. The manifest's depends_on is enforced by
+# the loader only for in-tree strict discovery; managed/marketplace installs
+# need this runtime gate. While a dependency is missing curiosity is INERT —
+# no tools, no moments, no schedules — and both the owner (pane blocked
+# screen) and the agent (paused prompt fragment) can see which and why.
+DEPENDENCIES = {
+    "plugin-wiki": {
+        "probe": "provider:wiki",
+        "why": "the wiki is where I keep everything I learn for the mission",
+    },
+    "plugin-scheduler": {
+        "probe": "tool:trigger_create",
+        "why": "the scheduler is what lets me act on my own, around the clock",
+    },
+}
+
+DEPENDENCY_BLOCKED_FLAG = "dependency_blocked"
+DEPENDENCY_NOTICE_FLAG = "dependency_blocked_notice"
+
+
+def missing_dependencies(ctx: PluginContext) -> list[str]:
+    """The dependencies whose runtime seams are absent right now."""
+    missing: list[str] = []
+    for name, spec in DEPENDENCIES.items():
+        kind, _, key = spec["probe"].partition(":")
+        try:
+            if kind == "provider":
+                ctx.provider_registry.get(key)
+            else:
+                ctx.tool_registry.get(key)
+        except Exception:  # noqa: BLE001 - any failure to resolve = missing
+            missing.append(name)
+    return missing
+
+
+def blocked_fragment(missing: list[str]) -> str:
+    """The agent-facing paused note — same legibility bar as the two-phase
+    model: the agent can EXPLAIN its own paused state."""
+    reasons = "; ".join(
+        f"{name} ({DEPENDENCIES[name]['why']})" for name in DEPENDENCIES
+    )
+    return (
+        "Curiosity is installed but PAUSED — it requires " + reasons + ". "
+        "Missing right now: " + ", ".join(missing) + ". None of your "
+        "curiosity capabilities (missions, research, goals, heartbeat) run "
+        "until the missing plugin(s) are installed. If the owner asks about "
+        "missions or growth work, say so plainly and point them at the "
+        "marketplace to install what's missing."
+    )
 
 # In-process claim for the install kickoff. The on-load work can run twice in
 # one process (bootstrap loop + serving loop), and the DB flag is only written
@@ -62,6 +124,13 @@ _kickoff_claimed = False
 # call sites schedule safely: the second call on the SAME loop is a no-op,
 # while a fresh loop (the real serving loop after bootstrap) runs the work.
 _onload: dict = {"loop": None, "task": None}
+
+# The loaded plugin instance — lets the on-load work (scheduled from either
+# on_load or the routes startup hook) re-evaluate the dependency gate in the
+# loop that survives. At in-tree boot curiosity can load BEFORE wiki/scheduler
+# (alphabetical), so an on_load-time "blocked" verdict may be a load-order
+# race; the serving-loop re-check after SYNC_ON_LOAD_DELAY_S is authoritative.
+_plugin: "CuriosityPlugin | None" = None
 
 
 async def _flag_get(sf, key: str) -> str | None:
@@ -152,18 +221,32 @@ def schedule_on_load_work(
     _onload["loop"] = loop
 
     async def _run() -> None:
-        try:
-            result = await comms.drain_queue(ctx, reflections)
-            if result.get("drained"):
-                log.info("drained %s queued thought(s) on load", result["drained"])
-        except Exception:  # noqa: BLE001
-            log.warning("queued-thought drain on load failed", exc_info=True)
+        # 9.002A: no owner-facing sends while the dependency gate is (still)
+        # closed — the authoritative re-check comes after the sleep.
+        if not missing_dependencies(ctx):
+            try:
+                result = await comms.drain_queue(ctx, reflections)
+                if result.get("drained"):
+                    log.info("drained %s queued thought(s) on load", result["drained"])
+            except Exception:  # noqa: BLE001
+                log.warning("queued-thought drain on load failed", exc_info=True)
         # The sleep does double duty: it lets late-loading plugins settle AND
         # it outlives the throwaway bootstrap loop — a _run() scheduled there
         # is cancelled HERE, before the kickoff send, instead of dying mid-send
         # with the moment posted but no reaction/flag (QA run 2). Only the
         # serving-loop task reaches the send.
         await asyncio.sleep(SYNC_ON_LOAD_DELAY_S)
+        # 9.002A: the authoritative gate check — every plugin that will load
+        # has loaded by now. Blocked → tell the agent's owner once and do NO
+        # other on-load work; satisfied → (late-)activate and continue.
+        if _plugin is not None:
+            missing = await _plugin.reevaluate_gate(ctx)
+            if missing:
+                try:
+                    await _plugin.maybe_send_blocked_notice(ctx, missing)
+                except Exception:  # noqa: BLE001
+                    log.warning("dependency-blocked notice failed", exc_info=True)
+                return
         try:
             await maybe_send_install_kickoff(ctx, store)
         except Exception:  # noqa: BLE001
@@ -211,14 +294,24 @@ def schedule_on_load_work(
 class CuriosityPlugin(LunaPlugin):
     manifest = PluginManifest(
         name="plugin-curiosity",
-        version="0.7.1",
+        version="0.8.0",
         description=(
             "Mission-driven curiosity: research, wiki-building, nightly dreams, "
-            "self-set goals, weekly mission reviews, proactive reflections."
+            "self-set goals, weekly mission reviews, proactive reflections, and "
+            "a Missions pane that makes the agent's inner workings visible."
         ),
         capabilities=["wiki"],
+        # 9.002A: hard by design — knowledge lives in wiki pages, drive lives
+        # in triggers. The loader enforces this for in-tree loads only; the
+        # runtime gate (missing_dependencies) covers managed installs.
+        depends_on=["plugin-wiki", "plugin-scheduler"],
         db_tables=[t.name for t in ALL_TABLES],
         routes_module="routes",
+        sidebar_sections=(
+            [SidebarSection(id="missions", label="Missions", icon="target", sort_order=45)]
+            if SidebarSection is not None
+            else []
+        ),
     )
 
     def __init__(self) -> None:
@@ -226,9 +319,14 @@ class CuriosityPlugin(LunaPlugin):
         self._goals: GoalStore | None = None
         self._scopes: ScopeStore | None = None
         self._loops: LoopStore | None = None
+        self._heartbeats: HeartbeatStore | None = None
         self._reflections: comms.ReflectionLog | None = None
+        self._activated = False
+        # None = gate not yet evaluated; [] = satisfied; [names] = blocked
+        self._missing: list[str] | None = None
 
     async def on_load(self, ctx: PluginContext) -> None:
+        global _plugin
         async with ctx.engine.begin() as conn:
             for table in ALL_TABLES:
                 await conn.run_sync(table.create, checkfirst=True)
@@ -239,13 +337,53 @@ class CuriosityPlugin(LunaPlugin):
         self._goals = GoalStore(ctx.db_session_factory)
         self._scopes = ScopeStore(ctx.db_session_factory)
         self._loops = LoopStore(ctx.db_session_factory)
+        self._heartbeats = HeartbeatStore(ctx.db_session_factory)
         self._reflections = comms.ReflectionLog(ctx.db_session_factory)
+        self._ctx = ctx
+        _plugin = self
+        # 9.002A: the dependency gate. Satisfied → activate now (tools, hooks
+        # — the normal path for runtime installs, whose deps are long loaded).
+        # Missing → stay INERT; the serving-loop on-load work re-checks after
+        # the settle delay (in-tree boot can load curiosity before its deps)
+        # and either late-activates or posts the one-time blocked notice.
+        missing = await self.reevaluate_gate(ctx)
+        if missing:
+            log.warning(
+                "plugin-curiosity INERT — missing dependencies %s (re-check in %ss)",
+                missing,
+                SYNC_ON_LOAD_DELAY_S,
+            )
+        schedule_on_load_work(
+            ctx, self._store, self._reflections, self._scopes, self._loops
+        )
+
+    async def reevaluate_gate(self, ctx: PluginContext) -> list[str]:
+        """Check the hard dependencies; (late-)activate when satisfied.
+        Returns the currently missing dependency names ([] = running)."""
+        missing = missing_dependencies(ctx)
+        self._missing = missing
+        try:
+            await _flag_set(
+                ctx.db_session_factory,
+                DEPENDENCY_BLOCKED_FLAG,
+                ",".join(missing),
+            )
+        except Exception:  # noqa: BLE001 - the flag is advisory, never fatal
+            log.debug("dependency_blocked flag write failed", exc_info=True)
+        if not missing and not self._activated:
+            self._activate(ctx)
+        return missing
+
+    def _activate(self, ctx: PluginContext) -> None:
+        """Register the plugin's live surface — tools + prompt hook. Runs
+        exactly once, and only with the dependency gate open."""
+        self._activated = True
         register_tools(ctx, self._store)
         goals.register_tools(ctx, self._goals)
         scopes.register_tools(ctx, self._scopes)
         loops.register_tools(ctx, self._loops)
         comms.register_tools(ctx, self._reflections)
-        self._ctx = ctx
+        telemetry.register_tools(ctx, self._heartbeats)
         # 8.1B: prompt primacy — on cores with the prompt.assemble hook, a
         # missionless agent gets the curiosity fragment moved ABOVE the
         # onboarding addendum. Feature-detected: older cores simply keep the
@@ -256,10 +394,34 @@ class CuriosityPlugin(LunaPlugin):
                 hooks.register("prompt.assemble", self._reorder_prompt, priority=60)
             except Exception:  # noqa: BLE001
                 log.warning("prompt.assemble registration failed", exc_info=True)
-        schedule_on_load_work(
-            ctx, self._store, self._reflections, self._scopes, self._loops
+        log.info("plugin-curiosity loaded (tools=20)")
+
+    async def maybe_send_blocked_notice(
+        self, ctx: PluginContext, missing: list[str]
+    ) -> bool:
+        """One muted heads-up per distinct missing-set — the chat-side mirror
+        of the pane's blocked screen, so an owner who never opens the pane
+        still learns why curiosity is dark."""
+        if not callable(getattr(ctx, "send_muted_message", None)):
+            return False
+        sf = ctx.db_session_factory
+        key = ",".join(sorted(missing))
+        if await _flag_get(sf, DEPENDENCY_NOTICE_FLAG) == key:
+            return False
+        result = await ctx.send_muted_message(
+            "Curiosity is paused",
+            blocked_fragment(missing)
+            + " Tell the owner in one short line, in your own voice: which "
+            "plugin(s) are missing, what each one is to you, and that "
+            "installing them from the marketplace un-pauses you.",
+            channel="moment",
+            source="curiosity",
         )
-        log.info("plugin-curiosity loaded (tools=19)")
+        if isinstance(result, dict) and result.get("error"):
+            log.info("blocked notice not delivered: %s", result["error"])
+            return False
+        await _flag_set(sf, DEPENDENCY_NOTICE_FLAG, key)
+        return True
 
     async def _reorder_prompt(self, hctx) -> None:
         """prompt.assemble handler: while MISSIONLESS, move this plugin's own
@@ -294,6 +456,12 @@ class CuriosityPlugin(LunaPlugin):
 
     async def prompt_sections(self) -> list[str]:
         if self._store is None:
+            return []
+        # 9.002A: while the dependency gate is closed, the ONLY fragment is
+        # the paused note — the agent knows it's paused and can explain why.
+        if self._missing:
+            return [blocked_fragment(self._missing)]
+        if not self._activated:
             return []
         mission = await self._store.get()
         phase = None

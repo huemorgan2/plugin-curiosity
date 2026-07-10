@@ -120,9 +120,11 @@ def test_prompt_budget_sanity():
     # 9.001 raised the setup-side budgets deliberately: the phase-one
     # doctrine + stage ladder + heartbeat contract ride every setup surface
     # (owner-mandated frame). The WORK fragment stays lean — relentless
-    # setup verbosity is phase-scoped by design.
+    # setup verbosity is phase-scoped by design. 9.002 raised the review
+    # budget for the NOC forcing: the weekly-scores line shape rides BOTH
+    # branches (the pane parses those lines) plus the drift audit.
     assert len(DAILY_RESEARCH_TARGET) < 4300
-    assert len(WEEKLY_REVIEW_TARGET) < 5600
-    assert len(_KICKOFF_CONTENT.format(statement="x")) < 7000
-    assert len(prompt_fragment(MISSION, "setup")) < 5300
+    assert len(WEEKLY_REVIEW_TARGET) < 6600
+    assert len(_KICKOFF_CONTENT.format(statement="x")) < 8200  # 9.002: + success-table shape
+    assert len(prompt_fragment(MISSION, "setup")) < 5700  # 9.002: + heartbeat_report clause
     assert len(prompt_fragment(MISSION, "work")) < 2400

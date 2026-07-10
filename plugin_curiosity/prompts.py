@@ -64,10 +64,38 @@ HEARTBEAT_CONTRACT = (
     "gained no new entries and nothing wobbled through real execution; "
     "(c) every fire ends by appending a one-line verdict to "
     "[[setup-heartbeat]]: gaps open, what stabilized, what wobbled, streak "
-    "count. When the streak converges, propose graduation (phase_advance "
+    "count; (d) after the verdict, the fire's LAST act is one "
+    "heartbeat_report call — the same numbers as data (streak, gaps_open, "
+    "wobbles) plus morale in your own voice (one or two words, consistent "
+    "with your persona, never a status code) and a one-line note the owner "
+    "sees verbatim. When the streak converges, propose graduation (phase_advance "
     "to='work') citing the streak — and on graduation YOU demote this "
     "trigger to a maintenance cadence (trigger_update, e.g. weekly) or "
     "delete it. Relentlessness is setup-scoped by design."
+)
+
+# 9.002E: the machine-renderable half of [[success-criteria]]. The Missions
+# pane's NOC role wall renders one status tile per criterion — it can only do
+# that if the criteria live in a fixed table shape and the weekly review
+# scores them in a fixed line shape. Prompt-forced (like the heartbeat
+# contract); everything else on the page stays free prose.
+SUCCESS_TABLE_SHAPE = (
+    "STRUCTURE IS LOAD-BEARING: [[success-criteria]] must contain a markdown "
+    "table with EXACTLY this header — `| criterion | measure | target | "
+    "horizon |` — one row per criterion (criterion: short name; measure: "
+    "what you look at; target: the owner-checkable number or state; horizon: "
+    "by when). Free prose around the table is welcome; the table itself is "
+    "rendered as your role wall in the owner's Missions pane, so a criterion "
+    "missing from the table is invisible to the owner."
+)
+
+WEEKLY_SCORES_SHAPE = (
+    "SCORES ARE STRUCTURED: when you score the week against "
+    "[[success-criteria]], ALSO append one line per criterion to a "
+    "'## Weekly scores' section of that page, exactly shaped: "
+    "`- <date> | <criterion> | <on-track|at-risk|met|missed> | <one-line "
+    "evidence, cite [[value-log]] when real>` — these lines light the tiles "
+    "on your role wall; a criterion you skip scoring shows as unmonitored."
 )
 
 # No open work without a scheduled next touch (9.001D).

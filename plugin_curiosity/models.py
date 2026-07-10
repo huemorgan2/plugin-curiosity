@@ -198,6 +198,29 @@ class ValueEntry(Base):
     )
 
 
+class HeartbeatReport(Base):
+    """One structured self-report per heartbeat fire (9.002 §5).
+
+    The agent ends every heartbeat fire with heartbeat_report(...) — the
+    streak becomes DATA (graduation proposals cite it; the weekly review
+    audits report-vs-page drift), and `morale` is the agent's own words
+    (personality-voiced, never an enum), shown verbatim in the Missions pane
+    behind a server-computed sentiment band."""
+
+    __tablename__ = "curiosity_heartbeats"
+
+    id: Mapped[_uuid.UUID] = mapped_column(UUID(), primary_key=True, default=_uuid.uuid4)
+    mission_id: Mapped[_uuid.UUID] = mapped_column(UUID(), nullable=False, index=True)
+    streak: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    gaps_open: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    wobbles: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    morale: Mapped[str] = mapped_column(String(80), default="", nullable=False)
+    note: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+
+
 class Flag(Base):
     """Tiny key/value state register (phase 8.1: `install_kickoff_sent`)."""
 
@@ -218,6 +241,7 @@ ALL_TABLES = (
     PlanChange.__table__,
     Loop.__table__,
     ValueEntry.__table__,
+    HeartbeatReport.__table__,
     Flag.__table__,
 )
 

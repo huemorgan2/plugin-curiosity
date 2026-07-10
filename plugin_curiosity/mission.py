@@ -24,7 +24,7 @@ from sqlalchemy import select, update
 
 from luna_sdk import PluginContext, ToolDef
 
-from . import dream, prompts, research, review
+from . import dream, prompts, research, review, telemetry
 from .models import Mission
 
 log = logging.getLogger("plugin-curiosity")
@@ -136,6 +136,10 @@ def _mission_dict(m: Mission) -> dict[str, Any]:
         "autonomy_rung": m.autonomy_rung,
         "risk_ceiling": m.risk_ceiling,
         "active": m.active,
+        "agent_phase": m.agent_phase,
+        "setup_stage": m.setup_stage,
+        "phase_entered_at": m.phase_entered_at.isoformat() if m.phase_entered_at else None,
+        "stage_entered_at": m.stage_entered_at.isoformat() if m.stage_entered_at else None,
         "created_at": m.created_at.isoformat() if m.created_at else None,
         "updated_at": m.updated_at.isoformat() if m.updated_at else None,
     }
@@ -195,6 +199,23 @@ class MissionStore:
                 await s.execute(select(Mission).where(Mission.active))
             ).scalar_one_or_none()
             return _mission_dict(m) if m else None
+
+    async def list_all(self) -> list[dict[str, Any]]:
+        """Every mission ever set, active first then newest first — the
+        Missions pane's history shelf (9.002)."""
+        async with self._sf() as s:
+            rows = (
+                (
+                    await s.execute(
+                        select(Mission).order_by(
+                            Mission.active.desc(), Mission.created_at.desc()
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            return [_mission_dict(m) for m in rows]
 
 
 # --- cross-plugin side effects (each best-effort: a missing peer plugin ----
@@ -320,6 +341,7 @@ def register_tools(ctx: PluginContext, store: MissionStore) -> None:
             mission = await store.set(statement, rung=rung, risk_ceiling=risk_ceiling)
         except ValueError as e:
             return {"error": str(e)}
+        await telemetry.emit_ui_event(ctx, "changed", {"what": "mission"})
         return {
             "mission": mission,
             "identity_sync": await _write_through_identity(ctx, mission["statement"]),
@@ -338,6 +360,7 @@ def register_tools(ctx: PluginContext, store: MissionStore) -> None:
             mission = await store.refine(statement=statement, rung=rung, risk_ceiling=risk_ceiling)
         except (ValueError, LookupError) as e:
             return {"error": str(e)}
+        await telemetry.emit_ui_event(ctx, "changed", {"what": "mission"})
         out: dict[str, Any] = {"mission": mission}
         if statement is not None:
             out["identity_sync"] = await _write_through_identity(ctx, mission["statement"])

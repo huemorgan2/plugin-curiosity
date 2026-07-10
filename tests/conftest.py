@@ -32,6 +32,9 @@ def _install_luna_sdk_stub() -> None:
     class ToolDef(_Kwargs):
         pass
 
+    class SidebarSection(_Kwargs):
+        pass
+
     class PluginContext:  # pragma: no cover - structural stand-in
         pass
 
@@ -50,6 +53,7 @@ def _install_luna_sdk_stub() -> None:
     mod.PluginContext = PluginContext
     mod.PluginManifest = PluginManifest
     mod.ToolDef = ToolDef
+    mod.SidebarSection = SidebarSection
     mod.declarative_base = declarative_base
     mod.UUID = Uuid
     mod.JSONB = JSON
@@ -155,6 +159,16 @@ class FakeProviderRegistry:
         raise KeyError(name)
 
 
+class FakeEvents:
+    """Records ui.plugin.event emits (the pane's live bridge, 9.002)."""
+
+    def __init__(self) -> None:
+        self.emitted: list[tuple[str, dict]] = []
+
+    async def emit(self, event: str, payload: dict) -> None:
+        self.emitted.append((event, payload))
+
+
 class FakeConfigRegistry:
     def __init__(self, has_identity: bool = True) -> None:
         self.writes: list[dict] = []
@@ -195,6 +209,8 @@ def ctx(store, sf):
         tool_registry=FakeToolRegistry(),
         provider_registry=FakeProviderRegistry(FakeWikiProvider()),
         config_registry=FakeConfigRegistry(),
+        events=FakeEvents(),
+        db_session_factory=sf,
         muted_posts=[],
     )
 

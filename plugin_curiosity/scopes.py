@@ -321,11 +321,14 @@ async def ensure_charter_mirror(ctx: PluginContext, store: ScopeStore) -> str:
 
 
 def register_tools(ctx: PluginContext, store: ScopeStore) -> None:
+    from . import telemetry
+
     async def _set(kind: str, name: str, why: str = "") -> dict[str, Any]:
         try:
             scope = await store.add(kind, name, why=why)
         except ValueError as e:
             return {"error": str(e)}
+        await telemetry.emit_ui_event(ctx, "changed", {"what": "scope"})
         return {"scope": scope, "wiki_mirror": await _mirror_to_wiki(ctx, store)}
 
     async def _update(
@@ -338,6 +341,7 @@ def register_tools(ctx: PluginContext, store: ScopeStore) -> None:
             scope = await store.update(id, status=status, evidence=evidence, why=why)
         except (ValueError, LookupError) as e:
             return {"error": str(e)}
+        await telemetry.emit_ui_event(ctx, "changed", {"what": "scope"})
         return {"scope": scope, "wiki_mirror": await _mirror_to_wiki(ctx, store)}
 
     async def _list() -> dict[str, Any]:
@@ -360,6 +364,7 @@ def register_tools(ctx: PluginContext, store: ScopeStore) -> None:
             result = await store.stage_set(stage)
         except ValueError as e:
             return {"error": str(e)}
+        await telemetry.emit_ui_event(ctx, "changed", {"what": "stage", "stage": stage})
         result["wiki_mirror"] = await _mirror_to_wiki(ctx, store)
         return result
 
@@ -415,6 +420,7 @@ def register_tools(ctx: PluginContext, store: ScopeStore) -> None:
             await store.plan_change_add(
                 f"Returned to setup phase — {reason or 'unspecified reason'}"
             )
+        await telemetry.emit_ui_event(ctx, "changed", {"what": "phase", "phase": to})
         result["wiki_mirror"] = await _mirror_to_wiki(ctx, store)
         return result
 

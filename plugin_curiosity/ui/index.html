@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Missions</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- Blocked screen: shown instead of the dashboard while a hard dependency
+       is missing. The pane's half of the 9.002 gate (the agent's half is the
+       paused prompt fragment). -->
+  <div id="blocked" class="blocked hidden">
+    <div class="blocked-card">
+      <div class="blocked-icon">⏸</div>
+      <h1>Curiosity is paused</h1>
+      <p class="blocked-lead">It needs two companions to run — knowledge lives in the wiki, drive lives in the scheduler.</p>
+      <div id="blocked-deps"></div>
+      <a id="blocked-cta" class="cta" href="#" target="_top">Open the marketplace to install what's missing</a>
+    </div>
+  </div>
+
+  <!-- Empty state: installed + running, but no mission yet. -->
+  <div id="empty" class="empty hidden">
+    <div class="blocked-card">
+      <div class="blocked-icon">◎</div>
+      <h1>No mission yet</h1>
+      <p class="blocked-lead">This is mission control for your agent's curiosity: give it a mission in chat ("your mission is…") and this pane fills with its setup arc, heartbeat, goals and knowledge as it works.</p>
+    </div>
+  </div>
+
+  <div id="app" class="app hidden">
+    <!-- Status band -->
+    <header class="band">
+      <div class="band-left">
+        <span class="eyebrow">Mission control</span>
+        <span id="phase-dial" class="phase-dial"></span>
+      </div>
+      <div class="band-right">
+        <span id="chip-autonomy" class="chip" data-tip="Autonomy rung 1-5: how much the agent may do without asking. Set with the mission, raised only by the owner."></span>
+        <span id="chip-risk" class="chip" data-tip="Risk ceiling: the worst-case impact the agent may accept on its own."></span>
+        <span id="pace" class="chip pace" data-tip=""></span>
+        <span id="pulse" class="pulse" data-tip="Heartbeat: the agent's own recurring self-check. The dot beats when a report arrives live."><span class="pulse-dot"></span><span id="pulse-label">no pulse yet</span></span>
+      </div>
+    </header>
+
+    <!-- The one gradient: the mission itself -->
+    <section class="hero">
+      <div class="hero-label">Active mission</div>
+      <div id="mission-statement" class="hero-statement"></div>
+      <div id="mission-meta" class="hero-meta"></div>
+      <div id="morale" class="hero-morale" data-tip="The agent's own words from its last heartbeat — verbatim, in its personality's voice. The color band behind it is computed from the numbers (streak, wobbles, gaps), never from the words."></div>
+    </section>
+
+    <!-- Needs from you: full-width when present -->
+    <section id="needs" class="panel needs hidden">
+      <h2>Needs from you <span class="sub">the agent is waiting on these — everything else it does alone</span></h2>
+      <div id="needs-list"></div>
+    </section>
+
+    <main class="grid">
+      <section id="setup-panel" class="panel">
+        <h2>Setup arc <span class="sub">the road to qualified — S0 to S5, each stage earned</span>
+          <span class="help" data-tip="The agent may not do the job before it qualifies for it. Stages are ratified by you (S3) and validated end-to-end (S4). The % is stages completed out of six.">?</span>
+        </h2>
+        <div class="setup-head"><div id="setup-ring" class="ring"><span id="setup-pct"></span></div><div id="setup-current" class="setup-current"></div></div>
+        <ol id="setup-list" class="setup-list"></ol>
+      </section>
+
+      <section id="noc-panel" class="panel wide hidden">
+        <h2>Role wall <span class="sub">every success criterion, scored weekly</span>
+          <span class="help" data-tip="Criteria come from the [[success-criteria]] wiki page you ratified. Each week's review appends a score line; uptime is the share of scored weeks on-track or met.">?</span>
+        </h2>
+        <div id="noc-tiles" class="noc-tiles"></div>
+        <div id="noc-incidents" class="incidents"></div>
+      </section>
+
+      <section id="gaps-panel" class="panel">
+        <h2>Gap board <span class="sub">what competent looks like, scope by scope</span>
+          <span class="help" data-tip="The agent charters its own scopes across seven kinds (knowledge, people, tools…) and tracks each: missing → in progress → competent. Competence can be revoked when a later learning invalidates it.">?</span>
+        </h2>
+        <div id="gaps"></div>
+      </section>
+
+      <section id="goals-panel" class="panel">
+        <h2>Goals <span class="sub">dated commitments, scored in the weekly review</span></h2>
+        <div id="goals"></div>
+      </section>
+
+      <section id="heartbeat-panel" class="panel">
+        <h2>Heartbeat <span class="sub">the agent's own drive — it wrote this trigger itself</span>
+          <span class="help" data-tip="Every fire ends with a structured report: streak = consecutive clean fires, gaps = what still blocks 'qualified', wobbles = what broke this fire. Morale is the agent's word; the band color is computed from the numbers.">?</span>
+        </h2>
+        <div id="hb-latest"></div>
+        <div id="hb-history" class="hb-history"></div>
+      </section>
+
+      <section id="next-panel" class="panel">
+        <h2>What happens next <span class="sub">no magic — this is the actual machinery</span></h2>
+        <div id="next"></div>
+      </section>
+
+      <section id="activity-panel" class="panel wide">
+        <h2>Activity <span class="sub">plan changes, value delivered, loops, heartbeats — one stream</span></h2>
+        <div id="activity"></div>
+      </section>
+
+      <section id="wiki-panel" class="panel wide">
+        <h2>Knowledge shelf <span class="sub">every page the agent keeps for you — age is server-computed</span></h2>
+        <div id="wiki" class="shelf"></div>
+      </section>
+
+      <section id="history-panel" class="panel wide hidden">
+        <h2>Past missions</h2>
+        <div id="history"></div>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <span id="foot-note"></span>
+      <span id="foot-updated"></span>
+    </footer>
+  </div>
+
+  <div id="tip" class="tip hidden"></div>
+  <script src="app.js"></script>
+</body>
+</html>

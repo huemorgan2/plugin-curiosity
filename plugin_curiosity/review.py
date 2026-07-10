@@ -24,6 +24,7 @@ from .prompts import (
     RATIFICATION_FORCING,
     SETUP_STAGE_DEFS,
     SETUP_WEEKLY_TITLE,
+    WEEKLY_SCORES_SHAPE,
     WORK_WEEKLY_TITLE,
 )
 
@@ -44,7 +45,11 @@ WEEKLY_REVIEW_TARGET = (
     "state a convergence criterion, and verdict lines must be accruing on "
     "[[setup-heartbeat]] — anything missing or malformed becomes this "
     "review's ONE action: fix it NOW (recreate/repair the trigger yourself; "
-    "it is yours). " + RATIFICATION_FORCING + "\n"
+    "it is yours). DRIFT AUDIT: your heartbeat_report calls and the "
+    "[[setup-heartbeat]] verdict lines must tell the same story — if the "
+    "reported streak/gaps disagree with the page (or fires stopped "
+    "reporting), say so in the review and correct whichever is wrong. "
+    + RATIFICATION_FORCING + "\n"
     "Post ONE share_thought(kind='review', title='" + SETUP_WEEKLY_TITLE
     + "'), citing [[mission-goals]] and [[role-charter]], in this exact "
     "shape:\n"
@@ -52,7 +57,8 @@ WEEKLY_REVIEW_TARGET = (
     "me and qualified (count them from your scopes + open questions).\n"
     "   - **Success check** — score the week against [[success-criteria]]: "
     "am I becoming the agent that page describes? If the page is still "
-    "un-ratified, say so — ratification is the ask below.\n"
+    "un-ratified, say so — ratification is the ask below. "
+    + WEEKLY_SCORES_SHAPE + "\n"
     "   - **Scope scoreboard** — every scope with status and evidence; call "
     "out what regressed and why.\n"
     "   - **Timeline** — the goal schedule: on time / late, per goal.\n"
@@ -75,6 +81,9 @@ WEEKLY_REVIEW_TARGET = (
     "title='" + WORK_WEEKLY_TITLE + "'), citing [[mission-goals]], in this "
     "exact shape:\n"
     "   - **Done** — runs, outputs, goal movement (cite wiki pages).\n"
+    "   - **Role wall** — score EVERY criterion on [[success-criteria]] "
+    "this week (this is the work phase's core scoreboard). "
+    + WEEKLY_SCORES_SHAPE + "\n"
     "   - **Insights** — what changed the picture this week.\n"
     "   - **Improve** — one concrete improvement to your own toolkit: a "
     "playbook diff, a cadence change, a plugin worth installing — leave the "

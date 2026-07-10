@@ -2,13 +2,14 @@
 # Keep in sync with PluginManifest in __init__.py.
 
 name = "plugin-curiosity"
-version = "0.7.1"
-description = "Mission-driven curiosity: research, wiki-building, nightly dreams, proactive reflections."
+version = "0.8.0"
+description = "Mission-driven curiosity: research, wiki-building, nightly dreams, proactive reflections, and a Missions pane."
 entry = "plugin_curiosity"
 sdk_version = "0"
 license = "MIT"
 tags = ["curiosity", "mission", "autonomy"]
 capabilities = ["wiki"]
+depends_on = ["plugin-wiki", "plugin-scheduler"]
 readme = """
 # plugin-curiosity
 

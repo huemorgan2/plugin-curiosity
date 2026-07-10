@@ -365,6 +365,8 @@ async def ensure_loop_mirrors(ctx: PluginContext, store: LoopStore) -> str:
 
 
 def register_tools(ctx: PluginContext, store: LoopStore) -> None:
+    from . import telemetry
+
     async def _open(
         kind: str, statement: str, who: str = "owner",
         unlock: str = "", human_cost: str = "", value_ref: str = "",
@@ -376,6 +378,7 @@ def register_tools(ctx: PluginContext, store: LoopStore) -> None:
             )
         except ValueError as e:
             return {"error": str(e)}
+        await telemetry.emit_ui_event(ctx, "changed", {"what": "loop"})
         return {"loop": loop, "wiki_mirror": await _mirror_to_wiki(ctx, store)}
 
     async def _close(id: str, status: str, resolution: str = "") -> dict[str, Any]:
@@ -383,6 +386,7 @@ def register_tools(ctx: PluginContext, store: LoopStore) -> None:
             loop = await store.close(id, status, resolution)
         except (ValueError, LookupError) as e:
             return {"error": str(e)}
+        await telemetry.emit_ui_event(ctx, "changed", {"what": "loop"})
         return {"loop": loop, "wiki_mirror": await _mirror_to_wiki(ctx, store)}
 
     async def _nudge(id: str) -> dict[str, Any]:
@@ -415,6 +419,7 @@ def register_tools(ctx: PluginContext, store: LoopStore) -> None:
             entry = await store.value_add(statement, evidence, linked_ask_id=linked_ask_id)
         except ValueError as e:
             return {"error": str(e)}
+        await telemetry.emit_ui_event(ctx, "changed", {"what": "value"})
         return {"value": entry, "wiki_mirror": await _mirror_to_wiki(ctx, store)}
 
     defs: list[tuple[ToolDef, Any]] = [

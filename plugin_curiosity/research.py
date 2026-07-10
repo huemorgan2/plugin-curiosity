@@ -35,6 +35,7 @@ from .prompts import (
     PHASE_ONE_DOCTRINE,
     RATIFICATION_FORCING,
     SETUP_STAGE_DEFS,
+    SUCCESS_TABLE_SHAPE,
     TALENTED_HIRE_LAW,
 )
 
@@ -117,6 +118,9 @@ S0 — understand it sharper than you were told:
 3. Write [[success-criteria]] (wiki_write): what success looks like — your
    job expectations, what will make the owner call you successful — from the
    mission plus what you just learned. 3-6 concrete criteria, owner-checkable.
+   """
+    + SUCCESS_TABLE_SHAPE
+    + """
    This page is ratified WITH your charter; goals must trace to it.
 4. Ask ONLY plan-changing questions (would the answer change your plan? if
    not, don't ask) — and if the owner's expectations are genuinely unclear,

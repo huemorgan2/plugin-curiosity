@@ -143,11 +143,14 @@ async def _mirror_to_wiki(ctx: PluginContext, store: GoalStore) -> str:
 
 
 def register_tools(ctx: PluginContext, store: GoalStore) -> None:
+    from . import telemetry
+
     async def _set(statement: str, why: str = "", target_date: str = "") -> dict[str, Any]:
         try:
             goal = await store.add(statement, why=why, target_date=target_date)
         except ValueError as e:
             return {"error": str(e)}
+        await telemetry.emit_ui_event(ctx, "changed", {"what": "goal"})
         return {"goal": goal, "wiki_mirror": await _mirror_to_wiki(ctx, store)}
 
     async def _update(
@@ -162,6 +165,7 @@ def register_tools(ctx: PluginContext, store: GoalStore) -> None:
             )
         except (ValueError, LookupError) as e:
             return {"error": str(e)}
+        await telemetry.emit_ui_event(ctx, "changed", {"what": "goal"})
         return {"goal": goal, "wiki_mirror": await _mirror_to_wiki(ctx, store)}
 
     async def _list() -> dict[str, Any]:

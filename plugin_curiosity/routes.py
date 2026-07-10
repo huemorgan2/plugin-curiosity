@@ -2,15 +2,24 @@
 provider resolved from THIS plugin's ctx. /mission exposes the active mission
 (walkthrough + UI surface). /reflect posts a source="curiosity" reflection via
 the core muted-message channel (phase-3 contract; phase 4's share_thought adds
-cadence guardrails on top)."""
+cadence guardrails on top). 9.002: /missions/overview + /missions/{id} feed
+the Missions pane, and /ui/ serves the pane itself (static iframe app, same
+pattern as plugin-marketplace)."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
-from . import comms
+from . import comms, overview
+from .goals import GoalStore
+from .loops import LoopStore
 from .mission import MissionStore
+from .scopes import ScopeStore
+from .telemetry import HeartbeatStore
 
 
 class ShareBody(BaseModel):
@@ -111,5 +120,66 @@ def register_routes(app, ctx):
             }
         except Exception as e:  # noqa: BLE001 — status must not 500
             return {"wiki_provider": "unavailable", "error": str(e)}
+
+    # ---- Missions pane (9.002) ----
+
+    scope_store = ScopeStore(ctx.db_session_factory)
+    goal_store = GoalStore(ctx.db_session_factory)
+    loop_store = LoopStore(ctx.db_session_factory)
+    heartbeat_store = HeartbeatStore(ctx.db_session_factory)
+
+    @router.get("/missions/overview")
+    async def missions_overview(user=Depends(get_current_user)):
+        return await overview.build_overview(
+            ctx,
+            missions=store,
+            scope_store=scope_store,
+            goal_store=goal_store,
+            loop_store=loop_store,
+            heartbeat_store=heartbeat_store,
+        )
+
+    @router.get("/missions/{mission_id}")
+    async def mission_history(mission_id: str, user=Depends(get_current_user)):
+        detail = await overview.mission_detail(ctx.db_session_factory, mission_id)
+        if detail is None:
+            raise HTTPException(404, "no such mission")
+        return detail
+
+    # The pane itself — same serving pattern as plugin-marketplace: no-cache
+    # (ETag revalidation) + the plugin version stamped onto asset refs so a
+    # Cloudflare-edge-cached app.js can never outlive an upgrade.
+    ui_dir = Path(__file__).parent / "ui"
+    _NO_CACHE = {"Cache-Control": "no-cache"}
+
+    def _versioned_index() -> Response:
+        from . import CuriosityPlugin
+
+        v = CuriosityPlugin.manifest.version
+        html = (ui_dir / "index.html").read_text()
+        html = html.replace('href="style.css"', f'href="style.css?v={v}"')
+        html = html.replace('src="app.js"', f'src="app.js?v={v}"')
+        return Response(content=html, media_type="text/html", headers=_NO_CACHE)
+
+    @router.get("/ui/")
+    async def serve_ui_root():
+        if (ui_dir / "index.html").exists():
+            return _versioned_index()
+        return Response(
+            content="<h1>plugin-curiosity UI not shipped</h1>", media_type="text/html"
+        )
+
+    @router.get("/ui/{path:path}")
+    async def serve_ui(path: str):
+        if not path or path == "/":
+            path = "index.html"
+        target = (ui_dir / path).resolve()
+        if not str(target).startswith(str(ui_dir.resolve())):
+            raise HTTPException(403, "Forbidden")
+        if not target.exists():
+            if (ui_dir / "index.html").exists():
+                return _versioned_index()
+            raise HTTPException(404, "Not found")
+        return FileResponse(str(target), headers=_NO_CACHE)
 
     app.include_router(router)
