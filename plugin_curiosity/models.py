@@ -42,6 +42,12 @@ class Mission(Base):
         DateTime(timezone=True), nullable=True
     )
     setup_stage: Mapped[str] = mapped_column(String(4), default="S0", nullable=False)
+    # 9.001E: when the current stage was entered — feeds the server-computed
+    # stage_age_days (agents have no clock) behind the ratification forcing
+    # function. NULL on pre-9.001 rows; age falls back to created_at.
+    stage_entered_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
     )
@@ -224,6 +230,8 @@ _MISSION_ADDITIVE_COLUMNS = (
     ("agent_phase", "VARCHAR(8) NOT NULL DEFAULT 'setup'"),
     ("phase_entered_at", "TIMESTAMP WITH TIME ZONE"),
     ("setup_stage", "VARCHAR(4) NOT NULL DEFAULT 'S0'"),
+    # 9.001E
+    ("stage_entered_at", "TIMESTAMP WITH TIME ZONE"),
 )
 
 

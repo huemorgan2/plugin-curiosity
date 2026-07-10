@@ -10,12 +10,18 @@ grounded reflections. Consumes the "wiki" provider. Authored against
 kickoff moment asks for a mission, and (on cores with the prompt.assemble
 hook) the missionless fragment is moved ABOVE the onboarding addendum so the
 mission ask outranks the setup checklist by position, not just persuasion.
+
+9.001: the phase-one doctrine (am I qualified? do I know what success looks
+like?) frames every setup surface; the agent authors its OWN setup heartbeat
+trigger; the on-load safety net notices a setup-phase mission with no
+heartbeat and nudges — it never creates the trigger itself.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import UTC, datetime
 
 from luna_sdk import LunaPlugin, PluginContext, PluginManifest
 
@@ -34,6 +40,10 @@ log = logging.getLogger("plugin-curiosity")
 SYNC_ON_LOAD_DELAY_S = 15.0
 
 INSTALL_KICKOFF_FLAG = "install_kickoff_sent"
+
+# 9.001G: at most one heartbeat nudge per UTC day — restarts must not turn
+# the safety net into a nag.
+HEARTBEAT_NUDGE_FLAG = "heartbeat_nudge_date"
 
 # In-process claim for the install kickoff. The on-load work can run twice in
 # one process (bootstrap loop + serving loop), and the DB flag is only written
@@ -97,6 +107,29 @@ async def maybe_send_install_kickoff(ctx: PluginContext, store: MissionStore) ->
     return True
 
 
+async def maybe_nudge_heartbeat(ctx: PluginContext, scope_store: ScopeStore) -> bool:
+    """9.001G: mission in setup phase + no self-authored heartbeat trigger →
+    post a muted nudge telling the agent to create one (the net reminds; it
+    NEVER creates the trigger — the heartbeat must stay agent-authored).
+    Skips when the scheduler can't be consulted (None from heartbeat_exists)
+    and throttles to one nudge per UTC day."""
+    state = await scope_store.state()
+    if state is None or state.get("agent_phase") != "setup":
+        return False
+    if await research.heartbeat_exists(ctx) is not False:
+        return False  # exists, or unknowable — either way, no nudge
+    if not callable(getattr(ctx, "send_muted_message", None)):
+        return False
+    sf = ctx.db_session_factory
+    today = datetime.now(UTC).date().isoformat()
+    if await _flag_get(sf, HEARTBEAT_NUDGE_FLAG) == today:
+        return False
+    if not await research.run_heartbeat_nudge(ctx):
+        return False
+    await _flag_set(sf, HEARTBEAT_NUDGE_FLAG, today)
+    return True
+
+
 def schedule_on_load_work(
     ctx: PluginContext,
     store: MissionStore,
@@ -157,6 +190,18 @@ def schedule_on_load_work(
                     log.info("loop mirrors seed on load: %s", result)
             except Exception:  # noqa: BLE001
                 log.warning("loop mirrors seed on load failed", exc_info=True)
+        try:
+            result = await mission.ensure_success_criteria_page(ctx, store)
+            if result not in ("already present", "no mission"):
+                log.info("success-criteria seed on load: %s", result)
+        except Exception:  # noqa: BLE001
+            log.warning("success-criteria seed on load failed", exc_info=True)
+        if scope_store is not None:
+            try:
+                if await maybe_nudge_heartbeat(ctx, scope_store):
+                    log.info("setup-heartbeat nudge posted")
+            except Exception:  # noqa: BLE001
+                log.warning("heartbeat nudge on load failed", exc_info=True)
 
     # keep a strong ref — the loop itself only holds weak refs to tasks, and
     # a task sleeping through boot would otherwise be GC-able mid-flight
@@ -166,7 +211,7 @@ def schedule_on_load_work(
 class CuriosityPlugin(LunaPlugin):
     manifest = PluginManifest(
         name="plugin-curiosity",
-        version="0.7.0",
+        version="0.7.1",
         description=(
             "Mission-driven curiosity: research, wiki-building, nightly dreams, "
             "self-set goals, weekly mission reviews, proactive reflections."

@@ -67,7 +67,11 @@ MISSION_SCHEDULES: list[dict[str, str]] = [
 _STUB_SLUGS = (
     "mission-domain",
     "mission-open-questions",
-    "mission-metrics",
+    # 9.001B: the success definition — job expectations, what makes the agent
+    # successful in the owner's eyes. Drafted in the kickoff's S0, ratified
+    # with the charter (S3), scored against in the weekly review. Replaces
+    # the pre-9.001 "mission-metrics" stub, which no surface ever filled.
+    "success-criteria",
     # 8.2: the goal ledger's owner-readable mirror (goals.py rebuilds it on
     # every goal_set/goal_update; the stub just makes the link resolvable
     # from day one)
@@ -80,6 +84,49 @@ _STUB_SLUGS = (
     "open-loops",
     "value-log",
 )
+
+
+# 9.001B: the success-criteria page — what success looks like, in a place the
+# kickoff fills, the owner ratifies, and the weekly review scores against.
+SUCCESS_SLUG = "success-criteria"
+_LEGACY_METRICS_SLUG = "mission-metrics"
+
+_SUCCESS_STUB_BODY = (
+    "*What success looks like for the mission: {statement}*\n\n"
+    "*Job expectations and what will make the owner call this successful — "
+    "drafted by the agent in kickoff S0, sharpened with the owner, RATIFIED "
+    "together with [[role-charter]] (that ratification is stage S3). Goals "
+    "must trace to a criterion on this page.*\n"
+)
+
+
+async def ensure_success_criteria_page(ctx: PluginContext, store: MissionStore) -> str:
+    """Upgrade path (on-load, 9.001B): a pre-9.001 mission has the orphaned
+    [[mission-metrics]] stub and no [[success-criteria]]. Seed the new page
+    once — carrying over any real content the old page accumulated — so the
+    success definition has a home without waiting for a new mission_set.
+    The old page is left in place (history stays readable)."""
+    m = await store.get()
+    if m is None:
+        return "no mission"
+    try:
+        wiki = ctx.provider_registry.get("wiki")
+    except Exception:  # noqa: BLE001
+        return "wiki provider unavailable"
+    if await wiki.get_page(SUCCESS_SLUG) is not None:
+        return "already present"
+    legacy = await wiki.get_page(_LEGACY_METRICS_SLUG)
+    body = _SUCCESS_STUB_BODY.format(statement=m["statement"])
+    if legacy and legacy.get("body") and "*Stub — " not in legacy["body"]:
+        body = legacy["body"].rstrip() + "\n\n" + body
+    await wiki.upsert_page(
+        SUCCESS_SLUG,
+        "Success Criteria",
+        body,
+        summary="what success looks like — to be ratified with the charter",
+        note="9.001B upgrade seed",
+    )
+    return "seeded"
 
 
 def _mission_dict(m: Mission) -> dict[str, Any]:
@@ -184,10 +231,15 @@ async def _seed_wiki_stubs(ctx: PluginContext, statement: str) -> str:
     seeded = ["mission"]
     for slug in _STUB_SLUGS:
         if await wiki.get_page(slug) is None:
+            body = (
+                _SUCCESS_STUB_BODY.format(statement=statement)
+                if slug == SUCCESS_SLUG
+                else f"*Stub — to be researched for the mission: {statement}*\n"
+            )
             await wiki.upsert_page(
                 slug,
                 slug.replace("-", " ").title(),
-                f"*Stub — to be researched for the mission: {statement}*\n",
+                body,
                 summary="stub",
                 note="mission_set stub",
             )
@@ -401,9 +453,13 @@ def prompt_fragment(mission: dict[str, Any] | None, phase: str | None = None) ->
             "and personality, with fresh framing each time (a mission in life; "
             "the work they want you to own; the problem they most want off "
             "their plate; what they'd hand a sharp new hire), never repeating "
-            "an earlier phrasing verbatim. Make the stakes felt: once you have "
-            "a mission you set yourself up to best serve it — research it, "
-            "build a knowledge wiki, watch over it while they sleep. The "
+            "an earlier phrasing verbatim. Make the stakes felt, and tell "
+            "them plainly how it works: once they give you a mission you "
+            "first make yourself QUALIFIED for it — a setup phase where they "
+            "see exactly what you are missing and how close you are — then "
+            "you run it as your job. You set yourself up to best serve it — "
+            "research it, build a knowledge wiki, watch over it while they "
+            "sleep. The "
             "moment they state a mission (or you agree on one together), call "
             "mission_set IN THAT SAME TURN, before asking anything else — never "
             "defer it behind name, emoji, or other setup questions; adopting it "
@@ -431,17 +487,26 @@ def prompt_fragment(mission: dict[str, Any] | None, phase: str | None = None) ->
     )
     if phase == "work":
         posture = (
-            "You are in WORK phase: the routine is yours — run it with "
+            prompts.PHASE_TWO_LINE + " The routine is yours — run it with "
             "mastery, keep 2-3 goals rolling, and every week leave the "
             "toolkit better than you found it (a playbook diff, a cadence "
             "change, a plugin worth adding). Charter upkeep continues: record "
             "answers as scope evidence and keep [[role-charter]] honest. "
         )
     else:
+        # 9.001A: the doctrine opens the posture — the frame first, then the
+        # HOW (talented-hire law), then the mechanics (ladder, loop
+        # discipline, heartbeat, next-touch, ratification forcing).
         posture = (
-            "You are in SETUP phase: " + prompts.TALENTED_HIRE_LAW + " "
+            prompts.PHASE_ONE_DOCTRINE + " "
+            + prompts.TALENTED_HIRE_LAW + " "
             "Corollary: work in small, redirectable increments — stub/summary "
             "depth until the owner ratifies your charter, so a pivot never "
-            "wastes a week. " + prompts.LOOP_DISCIPLINE + " "
+            "wastes a week. "
+            + prompts.SETUP_STAGE_DEFS + " "
+            + prompts.LOOP_DISCIPLINE + " "
+            + prompts.HEARTBEAT_CONTRACT + " "
+            + prompts.NEXT_TOUCH_RULE + " "
+            + prompts.RATIFICATION_FORCING + " "
         )
     return base + posture + rails

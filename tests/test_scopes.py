@@ -219,7 +219,9 @@ async def test_additive_migration_backfills_old_db():
             "'2026-01-01 09:00:00', '2026-01-01 09:00:00')"
         ))
         added = await conn.run_sync(apply_additive_migrations)
-        assert added == ["agent_phase", "phase_entered_at", "setup_stage"]
+        assert added == [
+            "agent_phase", "phase_entered_at", "setup_stage", "stage_entered_at",
+        ]
         assert await conn.run_sync(apply_additive_migrations) == []  # idempotent
 
     sf = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)

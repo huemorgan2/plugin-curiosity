@@ -98,11 +98,21 @@ class ScopeStore:
             m = await self._active(s)
             if m is None:
                 return None
+            # stage_age_days is server-computed — agents have no clock, so a
+            # recency gate ("un-ratified past 3 days") must ship as a number,
+            # not a timestamp. Pre-9.001 rows have no stage_entered_at; the
+            # mission's creation is the best available stage start.
+            stage_since = m.stage_entered_at or m.created_at
+            if stage_since is not None and stage_since.tzinfo is None:
+                # SQLite round-trips DateTime(timezone=True) as naive UTC
+                stage_since = stage_since.replace(tzinfo=UTC)
+            age_days = max(0, (_utcnow() - stage_since).days) if stage_since else 0
             return {
                 "mission_id": str(m.id),
                 "statement": m.statement,
                 "agent_phase": m.agent_phase,
                 "setup_stage": m.setup_stage,
+                "stage_age_days": age_days,
                 "phase_entered_at": (
                     m.phase_entered_at.isoformat() if m.phase_entered_at else None
                 ),
@@ -171,6 +181,7 @@ class ScopeStore:
             if m is None:
                 raise ValueError("no active mission — set a mission first")
             m.setup_stage = stage
+            m.stage_entered_at = _utcnow()
             await s.commit()
         return {"setup_stage": stage}
 
@@ -471,8 +482,10 @@ def register_tools(ctx: PluginContext, store: ScopeStore) -> None:
                 name="scope_list",
                 description=(
                     "Your role charter — every scope with kind, status, and "
-                    "evidence, plus your current phase (setup/work) and "
-                    "setup-arc stage. Read it before planning any setup work."
+                    "evidence, plus your current phase (setup/work), "
+                    "setup-arc stage, and stage_age_days (server-computed "
+                    "days in the current stage). Read it before planning "
+                    "any setup work."
                 ),
                 parameters={"type": "object", "properties": {}},
                 policy="auto_approve",
@@ -484,9 +497,13 @@ def register_tools(ctx: PluginContext, store: ScopeStore) -> None:
             ToolDef(
                 name="stage_set",
                 description=(
-                    "Mark the furthest RATIFIED setup-arc stage (S0-S5). "
-                    "Advance only when the owner has confirmed the stage's "
-                    "output; regress when a learning reopens earlier work."
+                    "Mark the furthest setup-arc stage actually reached "
+                    "(S0-S5 — the ladder is defined once in your "
+                    "instructions: S2 = posted, S3 = owner RATIFIED charter "
+                    "+ success-criteria, S4 = workflow validated, S5 = "
+                    "feedback signals live). S3 and above require the "
+                    "owner's explicit word; regress when a learning reopens "
+                    "earlier work."
                 ),
                 parameters={
                     "type": "object",

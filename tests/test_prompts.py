@@ -84,8 +84,9 @@ def test_weekly_titles_exact_and_branched():
     for block in ("Done", "Insights", "Improve", "Next move"):
         assert block in t, block
     assert "leave the toolkit better" in t
-    # value first, ask last
-    assert t.index("Value vs asks") < t.index("I need")
+    # value first, ask last ("I need" alone also occurs inside the phase-one
+    # doctrine text — probe the bolded section labels)
+    assert t.index("**Value vs asks**") < t.index("**I need**")
 
 
 def test_fragment_phase_posture():
@@ -115,9 +116,13 @@ def test_anti_patterns_absent():
 
 
 def test_prompt_budget_sanity():
-    # branching halves active text; keep total payloads bounded (chars)
-    assert len(DAILY_RESEARCH_TARGET) < 3200
-    assert len(WEEKLY_REVIEW_TARGET) < 3200
-    assert len(_KICKOFF_CONTENT.format(statement="x")) < 3600
-    assert len(prompt_fragment(MISSION, "setup")) < 2600
+    # branching halves active text; keep total payloads bounded (chars).
+    # 9.001 raised the setup-side budgets deliberately: the phase-one
+    # doctrine + stage ladder + heartbeat contract ride every setup surface
+    # (owner-mandated frame). The WORK fragment stays lean — relentless
+    # setup verbosity is phase-scoped by design.
+    assert len(DAILY_RESEARCH_TARGET) < 4300
+    assert len(WEEKLY_REVIEW_TARGET) < 5600
+    assert len(_KICKOFF_CONTENT.format(statement="x")) < 7000
+    assert len(prompt_fragment(MISSION, "setup")) < 5300
     assert len(prompt_fragment(MISSION, "work")) < 2400

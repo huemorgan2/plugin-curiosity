@@ -7,11 +7,25 @@ prompt IS the routine, and it reads the CURRENT phase at fire time
 work phase reports the week's output. Both post ONE share_thought
 (kind='review' — exempt from the routine daily cap; cadence is structural),
 value first, ask last.
+
+9.001: the setup branch opens with the phase line + qualification gap count,
+scores the week against [[success-criteria]], and audits the agent's own
+heartbeat (exists? convergence criterion in its target? verdicts accruing?) —
+the weekly half of the safety net that reminds but never creates.
 """
 
 from __future__ import annotations
 
-from .prompts import ASK_SHAPE, PHASE_CHECK, SETUP_WEEKLY_TITLE, WORK_WEEKLY_TITLE
+from .prompts import (
+    ASK_SHAPE,
+    HEARTBEAT_NAME,
+    PHASE_CHECK,
+    PHASE_ONE_DOCTRINE,
+    RATIFICATION_FORCING,
+    SETUP_STAGE_DEFS,
+    SETUP_WEEKLY_TITLE,
+    WORK_WEEKLY_TITLE,
+)
 
 WEEKLY_REVIEW_TARGET = (
     "[curiosity] Weekly review — your scoreboard turn; the owner should feel "
@@ -24,9 +38,21 @@ WEEKLY_REVIEW_TARGET = (
     "trigger_list — routines still right?; marketplace_search 1-2 mission "
     "keywords; wa_status / connector_list_connected for off-platform reach — "
     "skip any of these silently if the tool isn't available.\n"
-    "SETUP BRANCH (agent_phase='setup') — post ONE share_thought("
-    "kind='review', title='" + SETUP_WEEKLY_TITLE + "'), citing "
-    "[[mission-goals]] and [[role-charter]], in this exact shape:\n"
+    "SETUP BRANCH (agent_phase='setup'): " + PHASE_ONE_DOCTRINE + " "
+    + SETUP_STAGE_DEFS + " HEARTBEAT AUDIT (from the trigger_list you "
+    "already ran): '" + HEARTBEAT_NAME + "' must exist, its target must "
+    "state a convergence criterion, and verdict lines must be accruing on "
+    "[[setup-heartbeat]] — anything missing or malformed becomes this "
+    "review's ONE action: fix it NOW (recreate/repair the trigger yourself; "
+    "it is yours). " + RATIFICATION_FORCING + "\n"
+    "Post ONE share_thought(kind='review', title='" + SETUP_WEEKLY_TITLE
+    + "'), citing [[mission-goals]] and [[role-charter]], in this exact "
+    "shape:\n"
+    "   - **Phase line** — open with: phase setup, stage Sx, N gaps between "
+    "me and qualified (count them from your scopes + open questions).\n"
+    "   - **Success check** — score the week against [[success-criteria]]: "
+    "am I becoming the agent that page describes? If the page is still "
+    "un-ratified, say so — ratification is the ask below.\n"
     "   - **Scope scoreboard** — every scope with status and evidence; call "
     "out what regressed and why.\n"
     "   - **Timeline** — the goal schedule: on time / late, per goal.\n"
@@ -36,10 +62,13 @@ WEEKLY_REVIEW_TARGET = (
     "what you asked for. Value first, ask last.\n"
     "   - **Plan changes** — added / dropped / reopened this week, each with "
     "the learning that caused it; 'none' is a finding too — say it plainly.\n"
-    "   - **Road to work mode** — S4: has a workflow validation run "
+    "   - **Road to work mode** — where the heartbeat streak stands against "
+    "its convergence criterion; S4: has a workflow validation run "
     "happened?; S5: which scopes have live feedback signals? Propose "
     "graduation (phase_advance) ONLY when every scope is competent or "
-    "explicitly waivable, citing per-scope signals.\n"
+    "explicitly waivable AND the heartbeat streak has converged, citing "
+    "per-scope signals — and on graduation demote your heartbeat to a "
+    "maintenance cadence yourself (trigger_update).\n"
     "   - **I need** — exactly ONE ask at most, shaped " + ASK_SHAPE + "; if "
     "you need nothing, say what you'll do with the free rein.\n"
     "WORK BRANCH (agent_phase='work') — post ONE share_thought(kind='review', "
@@ -49,7 +78,9 @@ WEEKLY_REVIEW_TARGET = (
     "   - **Insights** — what changed the picture this week.\n"
     "   - **Improve** — one concrete improvement to your own toolkit: a "
     "playbook diff, a cadence change, a plugin worth installing — leave the "
-    "toolkit better than you found it.\n"
+    "toolkit better than you found it. Post-graduation, check your old "
+    "'" + HEARTBEAT_NAME + "' cadence still earns its cost — demote or "
+    "delete it if not.\n"
     "   - **Next move** — ONE action YOU will take, ending 'say go and I'll "
     "do it' (needs owner) or 'already scheduled' (doesn't). Never end on "
     "suggestions for the owner to do.\n"
