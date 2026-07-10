@@ -247,6 +247,83 @@ async def test_heartbeat_tool_without_mission_returns_error(sf, ctx):
     assert not [e for e in ctx.events.emitted if e[1]["event"] == "heartbeat"]
 
 
+# ---- heartbeat dedupe (9.002 prod e2e: TOCTOU duplicate) ----------------------
+
+
+def _seed_duplicate_heartbeats(ctx):
+    from plugin_curiosity.prompts import HEARTBEAT_NAME
+
+    ctx.tool_registry.existing_triggers = [
+        {"id": "trg-daily", "name": "curiosity-daily-research",
+         "created_at": "2026-07-09T22:20:22Z"},
+        {"id": "trg-young", "name": HEARTBEAT_NAME,
+         "created_at": "2026-07-09T22:22:53Z"},
+        {"id": "trg-old", "name": HEARTBEAT_NAME,
+         "created_at": "2026-07-09T22:20:54Z"},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_dedupe_reaps_extras_keeping_oldest(sf):
+    from plugin_curiosity import research
+
+    ctx = _bare_ctx(sf)
+    _seed_duplicate_heartbeats(ctx)
+    assert await research.dedupe_heartbeats(ctx) == 1
+    ids = [t["id"] for t in ctx.tool_registry.existing_triggers]
+    assert "trg-old" in ids and "trg-daily" in ids
+    assert ctx.tool_registry.trigger_deleted == ["trg-young"]
+
+
+@pytest.mark.asyncio
+async def test_dedupe_noop_on_single_and_none(sf):
+    from plugin_curiosity import research
+    from plugin_curiosity.prompts import HEARTBEAT_NAME
+
+    ctx = _bare_ctx(sf)
+    assert await research.dedupe_heartbeats(ctx) == 0
+    ctx.tool_registry.existing_triggers = [
+        {"id": "trg-1", "name": HEARTBEAT_NAME, "created_at": "2026-07-09T22:20:54Z"}]
+    assert await research.dedupe_heartbeats(ctx) == 0
+    assert ctx.tool_registry.trigger_deleted == []
+
+
+@pytest.mark.asyncio
+async def test_dedupe_unknowable_without_scheduler(sf):
+    from plugin_curiosity import research
+
+    ctx = _bare_ctx(sf, scheduler=False)
+    assert await research.dedupe_heartbeats(ctx) is None
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_report_reaps_duplicates(sf, store, ctx):
+    """Every fire ends with heartbeat_report — the reaper rides it, so a
+    duplicate born of racing turns dies within one heartbeat cycle."""
+    from plugin_curiosity import telemetry
+    from plugin_curiosity.telemetry import HeartbeatStore
+
+    await store.set("learn the domain")
+    _seed_duplicate_heartbeats(ctx)
+    telemetry.register_tools(ctx, HeartbeatStore(sf))
+    handler = ctx.tool_registry.registered["heartbeat_report"][1]
+    out = await handler(streak=1, gaps_open=2, wobbles=0, morale="steady")
+    assert "report" in out
+    assert ctx.tool_registry.trigger_deleted == ["trg-young"]
+
+
+def test_contract_single_creator_clause():
+    """The race fix's prompt half: creation belongs to the kickoff (and the
+    recreate nudge) alone; conversation turns may only update."""
+    from plugin_curiosity.prompts import HEARTBEAT_CONTRACT
+    from plugin_curiosity.research import _KICKOFF_CONTENT
+
+    assert "born ONLY in your kickoff" in HEARTBEAT_CONTRACT
+    assert "NEVER create it in an ordinary conversation" in HEARTBEAT_CONTRACT
+    assert "reaped automatically" in HEARTBEAT_CONTRACT
+    assert "THIS step is where it is born" in _KICKOFF_CONTENT
+
+
 @pytest.mark.asyncio
 async def test_mutations_emit_changed_events(sf, ctx, store):
     """The pane refetches on any 'changed' — every write tool must emit one."""

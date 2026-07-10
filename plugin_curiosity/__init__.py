@@ -279,6 +279,10 @@ def schedule_on_load_work(
                 log.info("success-criteria seed on load: %s", result)
         except Exception:  # noqa: BLE001
             log.warning("success-criteria seed on load failed", exc_info=True)
+        try:
+            await research.dedupe_heartbeats(ctx)
+        except Exception:  # noqa: BLE001
+            log.warning("heartbeat dedupe on load failed", exc_info=True)
         if scope_store is not None:
             try:
                 if await maybe_nudge_heartbeat(ctx, scope_store):
@@ -294,7 +298,7 @@ def schedule_on_load_work(
 class CuriosityPlugin(LunaPlugin):
     manifest = PluginManifest(
         name="plugin-curiosity",
-        version="0.8.0",
+        version="0.8.1",
         description=(
             "Mission-driven curiosity: research, wiki-building, nightly dreams, "
             "self-set goals, weekly mission reviews, proactive reflections, and "

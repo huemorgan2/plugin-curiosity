@@ -148,9 +148,9 @@ S2 — charter, success, and your own drive:
    scope, and each must trace to a criterion on [[success-criteria]] (a goal
    that serves no success criterion is scope creep — cut it). They form a
    timeline, not a wish list.
-9. Ensure your OWN setup heartbeat exists: trigger_list first — if you
-   already created it (e.g. while adopting the mission), leave it; else
-   create it NOW with trigger_create. """
+9. Ensure your OWN setup heartbeat exists — THIS step is where it is born,
+   no other turn creates it: trigger_list first — if it somehow already
+   exists, leave it; else create it NOW with trigger_create. """
     + HEARTBEAT_CONTRACT
     + " "
     + NEXT_TOUCH_RULE
@@ -361,6 +361,47 @@ async def heartbeat_exists(ctx: PluginContext) -> bool | None:
     if not isinstance(listed, dict) or "error" in listed:
         return None
     return any(t.get("name") == HEARTBEAT_NAME for t in listed.get("triggers", []))
+
+
+async def dedupe_heartbeats(ctx: PluginContext) -> int | None:
+    """Self-heal the EXACTLY-ONE heartbeat invariant. Two concurrent turns
+    (mission-adoption chat + detached kickoff) can each pass their
+    list-before-create check and author a duplicate — prompt discipline is
+    probabilistic across turns (9.002 prod e2e). Delete every extra, keeping
+    the OLDEST: its fire history carries the streak. Runs from plugin code
+    via the raw handlers, so trigger_delete's prompt_always approval policy
+    never parks an agent turn on cleanup. Returns the number deleted; None
+    when the scheduler cannot be consulted."""
+    try:
+        lister = ctx.tool_registry.get("trigger_list").handler
+        deleter = ctx.tool_registry.get("trigger_delete").handler
+    except KeyError:
+        return None
+    try:
+        listed = await lister()
+    except Exception:  # noqa: BLE001
+        return None
+    if not isinstance(listed, dict) or "error" in listed:
+        return None
+    beats = [t for t in listed.get("triggers", []) if t.get("name") == HEARTBEAT_NAME]
+    if len(beats) <= 1:
+        return 0
+    beats.sort(key=lambda t: str(t.get("created_at") or ""))
+    deleted = 0
+    for extra in beats[1:]:
+        tid = extra.get("id")
+        if not tid:
+            continue
+        try:
+            result = await deleter(id=str(tid))
+        except Exception:  # noqa: BLE001
+            continue
+        if isinstance(result, dict) and result.get("error"):
+            continue
+        deleted += 1
+    if deleted:
+        log.info("heartbeat dedupe: removed %s duplicate trigger(s), kept oldest", deleted)
+    return deleted
 
 
 async def run_heartbeat_nudge(ctx: PluginContext) -> bool:

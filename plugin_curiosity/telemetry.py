@@ -218,6 +218,15 @@ def register_tools(ctx: PluginContext, store: HeartbeatStore) -> None:
         except (LookupError, ValueError) as e:
             return {"error": str(e)}
         await emit_ui_event(ctx, "heartbeat", report)
+        # every fire ends here (contract clause d) — the cheapest reliable
+        # moment to enforce the EXACTLY-ONE trigger invariant without an
+        # approval gate or a restart
+        try:
+            from . import research
+
+            await research.dedupe_heartbeats(ctx)
+        except Exception:  # noqa: BLE001
+            log.debug("heartbeat dedupe after report failed", exc_info=True)
         return {"report": report}
 
     ctx.tool_registry.register(
