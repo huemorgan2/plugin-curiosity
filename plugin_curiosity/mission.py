@@ -67,6 +67,11 @@ MISSION_SCHEDULES: list[dict[str, str]] = [
 _STUB_SLUGS = (
     "mission-domain",
     "mission-open-questions",
+    # phase 10: the agent's own job description — how it will accomplish the
+    # mission, what the owner sees after onboarding and in 30 days, working
+    # assumptions. Drafted v1 in kickoff S0, living document thereafter
+    # (rewritten on role pivots; role_version stamps the revision).
+    "job-description",
     # 9.001B: the success definition — job expectations, what makes the agent
     # successful in the owner's eyes. Drafted in the kickoff's S0, ratified
     # with the charter (S3), scored against in the weekly review. Replaces
@@ -138,6 +143,8 @@ def _mission_dict(m: Mission) -> dict[str, Any]:
         "active": m.active,
         "agent_phase": m.agent_phase,
         "setup_stage": m.setup_stage,
+        "role_version": getattr(m, "role_version", 1) or 1,
+        "wiki_id": getattr(m, "wiki_id", None),
         "phase_entered_at": m.phase_entered_at.isoformat() if m.phase_entered_at else None,
         "stage_entered_at": m.stage_entered_at.isoformat() if m.stage_entered_at else None,
         "created_at": m.created_at.isoformat() if m.created_at else None,
@@ -518,18 +525,25 @@ def prompt_fragment(mission: dict[str, Any] | None, phase: str | None = None) ->
         )
     else:
         # 9.001A: the doctrine opens the posture — the frame first, then the
-        # HOW (talented-hire law), then the mechanics (ladder, loop
-        # discipline, heartbeat, next-touch, ratification forcing).
+        # HOW (talented-hire law + phase-10 FDE stance), then the mechanics
+        # (ladder, loop discipline, heartbeat, next-touch, ratification
+        # forcing) and the phase-10 discovery discipline (question cadence,
+        # materiality, no-blame).
         posture = (
             prompts.PHASE_ONE_DOCTRINE + " "
+            + prompts.FDE_DOCTRINE + " "
             + prompts.TALENTED_HIRE_LAW + " "
             "Corollary: work in small, redirectable increments — stub/summary "
             "depth until the owner ratifies your charter, so a pivot never "
             "wastes a week. "
             + prompts.SETUP_STAGE_DEFS + " "
+            + prompts.ABILITY_CONTRACT + " "
             + prompts.LOOP_DISCIPLINE + " "
             + prompts.HEARTBEAT_CONTRACT + " "
             + prompts.NEXT_TOUCH_RULE + " "
             + prompts.RATIFICATION_FORCING + " "
+            + prompts.VALUE_QUESTION_CADENCE + " "
+            + prompts.MATERIALITY_RULE + " "
+            + prompts.NO_BLAME + " "
         )
     return base + posture + rails

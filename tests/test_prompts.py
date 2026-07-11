@@ -122,9 +122,12 @@ def test_prompt_budget_sanity():
     # (owner-mandated frame). The WORK fragment stays lean — relentless
     # setup verbosity is phase-scoped by design. 9.002 raised the review
     # budget for the NOC forcing: the weekly-scores line shape rides BOTH
-    # branches (the pane parses those lines) plus the drift audit.
-    assert len(DAILY_RESEARCH_TARGET) < 4300
-    assert len(WEEKLY_REVIEW_TARGET) < 6600
-    assert len(_KICKOFF_CONTENT.format(statement="x")) < 8200  # 9.002: + success-table shape
-    assert len(prompt_fragment(MISSION, "setup")) < 5700  # 9.002: + heartbeat_report clause
+    # branches (the pane parses those lines) plus the drift audit. Phase 10
+    # raised the setup surfaces again — the FDE doctrine, JD shape, ability
+    # contract, question cadence, materiality rule and no-blame frame ride
+    # the kickoff and setup fragment (the job model IS the setup product).
+    assert len(DAILY_RESEARCH_TARGET) < 4600
+    assert len(WEEKLY_REVIEW_TARGET) < 7400
+    assert len(_KICKOFF_CONTENT.format(statement="x")) < 12000
+    assert len(prompt_fragment(MISSION, "setup")) < 9000
     assert len(prompt_fragment(MISSION, "work")) < 2400

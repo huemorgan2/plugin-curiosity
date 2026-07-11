@@ -510,8 +510,9 @@ async def test_overview_contract(sf, ctx, store):
     # needs-from-you: the owner question + the S2 ratify CTA
     kinds = [n["kind"] for n in o["needs_from_you"]]
     assert "question" in kinds and "ratify" in kinds
-    # wiki shelf lists all 9 slugs and tolerates missing pages
-    assert len(o["wiki_shelf"]) == 9
+    # wiki shelf lists all 10 slugs (10.001 adds job-description) and
+    # tolerates missing pages
+    assert len(o["wiki_shelf"]) == 10
     assert all("exists" in p for p in o["wiki_shelf"])
     assert any(a["kind"] == "heartbeat" for a in o["activity"])
     assert any(n["kind"] == "stage" for n in o["next_up"])

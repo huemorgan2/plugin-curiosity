@@ -28,6 +28,10 @@ from .models import Goal
 log = logging.getLogger("plugin-curiosity")
 
 GOAL_STATUSES = ("active", "done", "stalled", "dropped")
+# phase 10 readiness: does the agent HAVE what this goal needs? green = yes,
+# amber = partly, red = something is missing. readiness_note says what, in
+# have/missing terms the owner can act on.
+GOAL_READINESS = ("green", "amber", "red")
 
 
 def _goal_dict(g: Goal) -> dict[str, Any]:
@@ -38,6 +42,9 @@ def _goal_dict(g: Goal) -> dict[str, Any]:
         "target_date": g.target_date,
         "status": g.status,
         "progress_note": g.progress_note,
+        "expected_result": g.expected_result,
+        "readiness": g.readiness or None,
+        "readiness_note": g.readiness_note,
         "created_at": g.created_at.isoformat() if g.created_at else None,
         "updated_at": g.updated_at.isoformat() if g.updated_at else None,
     }
@@ -48,13 +55,29 @@ class GoalStore:
         self._sf = session_factory
 
     async def add(
-        self, statement: str, *, why: str = "", target_date: str = ""
+        self,
+        statement: str,
+        *,
+        why: str = "",
+        target_date: str = "",
+        expected_result: str = "",
+        readiness: str = "",
+        readiness_note: str = "",
     ) -> dict[str, Any]:
         statement = (statement or "").strip()
         if not statement:
             raise ValueError("goal statement must be non-empty")
+        if readiness and readiness not in GOAL_READINESS:
+            raise ValueError(f"readiness must be one of {GOAL_READINESS}")
         async with self._sf() as s:
-            g = Goal(statement=statement, why=why.strip(), target_date=target_date.strip())
+            g = Goal(
+                statement=statement,
+                why=why.strip(),
+                target_date=target_date.strip(),
+                expected_result=expected_result.strip(),
+                readiness=readiness,
+                readiness_note=readiness_note.strip(),
+            )
             s.add(g)
             await s.commit()
             return _goal_dict(g)
@@ -66,6 +89,9 @@ class GoalStore:
         status: str | None = None,
         progress_note: str | None = None,
         target_date: str | None = None,
+        expected_result: str | None = None,
+        readiness: str | None = None,
+        readiness_note: str | None = None,
     ) -> dict[str, Any]:
         try:
             key = uuid.UUID(str(goal_id))
@@ -83,6 +109,14 @@ class GoalStore:
                 g.progress_note = progress_note.strip()
             if target_date is not None:
                 g.target_date = target_date.strip()
+            if expected_result is not None:
+                g.expected_result = expected_result.strip()
+            if readiness is not None:
+                if readiness and readiness not in GOAL_READINESS:
+                    raise ValueError(f"readiness must be one of {GOAL_READINESS}")
+                g.readiness = readiness
+            if readiness_note is not None:
+                g.readiness_note = readiness_note.strip()
             await s.commit()
             return _goal_dict(g)
 
@@ -97,6 +131,7 @@ class GoalStore:
 
 
 _STATUS_MARK = {"active": "🎯", "done": "✅", "stalled": "⚠️", "dropped": "✖️"}
+_READINESS_MARK = {"green": "🟢", "amber": "🟡", "red": "🔴"}
 
 
 def render_goals_page(goals: list[dict[str, Any]]) -> str:
@@ -115,6 +150,12 @@ def render_goals_page(goals: list[dict[str, Any]]) -> str:
         lines.append(head)
         if g["why"]:
             lines.append(f"  - why: {g['why']}")
+        if g.get("expected_result"):
+            lines.append(f"  - expected result: {g['expected_result']}")
+        if g.get("readiness"):
+            rmark = _READINESS_MARK.get(g["readiness"], "•")
+            note = f" — {g['readiness_note']}" if g.get("readiness_note") else ""
+            lines.append(f"  - readiness: {rmark} {g['readiness']}{note}")
         if g["progress_note"]:
             lines.append(f"  - progress: {g['progress_note']}")
         lines.append(f"  - status: {g['status']}")
@@ -145,9 +186,23 @@ async def _mirror_to_wiki(ctx: PluginContext, store: GoalStore) -> str:
 def register_tools(ctx: PluginContext, store: GoalStore) -> None:
     from . import telemetry
 
-    async def _set(statement: str, why: str = "", target_date: str = "") -> dict[str, Any]:
+    async def _set(
+        statement: str,
+        why: str = "",
+        target_date: str = "",
+        expected_result: str = "",
+        readiness: str = "",
+        readiness_note: str = "",
+    ) -> dict[str, Any]:
         try:
-            goal = await store.add(statement, why=why, target_date=target_date)
+            goal = await store.add(
+                statement,
+                why=why,
+                target_date=target_date,
+                expected_result=expected_result,
+                readiness=readiness,
+                readiness_note=readiness_note,
+            )
         except ValueError as e:
             return {"error": str(e)}
         await telemetry.emit_ui_event(ctx, "changed", {"what": "goal"})
@@ -158,10 +213,19 @@ def register_tools(ctx: PluginContext, store: GoalStore) -> None:
         status: str | None = None,
         progress_note: str | None = None,
         target_date: str | None = None,
+        expected_result: str | None = None,
+        readiness: str | None = None,
+        readiness_note: str | None = None,
     ) -> dict[str, Any]:
         try:
             goal = await store.update(
-                id, status=status, progress_note=progress_note, target_date=target_date
+                id,
+                status=status,
+                progress_note=progress_note,
+                target_date=target_date,
+                expected_result=expected_result,
+                readiness=readiness,
+                readiness_note=readiness_note,
             )
         except (ValueError, LookupError) as e:
             return {"error": str(e)}
@@ -187,9 +251,13 @@ def register_tools(ctx: PluginContext, store: GoalStore) -> None:
                 description=(
                     "Commit to a concrete goal in pursuit of your mission — a "
                     "specific outcome YOU will drive, with a target date. Set "
-                    "2-3 at mission kickoff; add more as the picture sharpens. "
-                    "The ledger mirrors to the [[mission-goals]] wiki page the "
-                    "owner can read."
+                    "them at mission kickoff; add more as the picture sharpens. "
+                    "For your NEXT 2-3 goals also state expected_result (what "
+                    "done looks like) and readiness (green = I have everything "
+                    "this needs, amber = partly, red = something is missing) "
+                    "with a one-line readiness_note saying what you have and "
+                    "what's missing. The ledger mirrors to the [[mission-goals]] "
+                    "wiki page the owner can read."
                 ),
                 parameters={
                     "type": "object",
@@ -206,6 +274,15 @@ def register_tools(ctx: PluginContext, store: GoalStore) -> None:
                             "type": "string",
                             "description": "When you aim to get there (e.g. '2026-07-20', 'end of July').",
                         },
+                        "expected_result": {
+                            "type": "string",
+                            "description": "What done looks like — the required result, one line.",
+                        },
+                        "readiness": {"type": "string", "enum": list(GOAL_READINESS)},
+                        "readiness_note": {
+                            "type": "string",
+                            "description": "One line: what you have / what's missing for this goal.",
+                        },
                     },
                     "required": ["statement"],
                 },
@@ -219,10 +296,12 @@ def register_tools(ctx: PluginContext, store: GoalStore) -> None:
                 name="goal_update",
                 description=(
                     "Record movement on a goal: progress notes, status changes "
-                    "(active/done/stalled/dropped), target-date shifts. Update "
-                    "after every research pass that advanced a goal; confront "
-                    "stalls honestly — change approach or drop with a reason, "
-                    "never let a goal rot."
+                    "(active/done/stalled/dropped), target-date shifts, and "
+                    "readiness re-scores (green/amber/red + what you have / "
+                    "what's missing). Update after every research pass that "
+                    "advanced a goal and re-score readiness when your ladder "
+                    "changes; confront stalls honestly — change approach or "
+                    "drop with a reason, never let a goal rot."
                 ),
                 parameters={
                     "type": "object",
@@ -234,6 +313,15 @@ def register_tools(ctx: PluginContext, store: GoalStore) -> None:
                             "description": "What moved (or why it stalled) — one or two lines.",
                         },
                         "target_date": {"type": "string"},
+                        "expected_result": {
+                            "type": "string",
+                            "description": "What done looks like — the required result, one line.",
+                        },
+                        "readiness": {"type": "string", "enum": list(GOAL_READINESS)},
+                        "readiness_note": {
+                            "type": "string",
+                            "description": "One line: what you have / what's missing for this goal.",
+                        },
                     },
                     "required": ["id"],
                 },

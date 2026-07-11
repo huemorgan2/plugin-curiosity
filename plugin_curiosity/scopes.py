@@ -45,6 +45,10 @@ SCOPE_KINDS = (
 SCOPE_STATUSES = ("missing", "in_progress", "competent")
 SETUP_STAGES = ("S0", "S1", "S2", "S3", "S4", "S5")
 AGENT_PHASES = ("setup", "work")
+# phase 10 materiality rule: a within-ability learning is a "refine"; a
+# learning that changes the role's SHAPE is a "role_pivot" — it bumps the
+# mission's role_version in the same transaction and surfaces to the owner.
+PLAN_CHANGE_KINDS = ("refine", "role_pivot")
 
 CHARTER_SLUG = "role-charter"
 CHARTER_TITLE = "Role Charter"
@@ -73,6 +77,7 @@ def _scope_dict(s: Scope) -> dict[str, Any]:
         "why": s.why,
         "status": s.status,
         "evidence": s.evidence,
+        "ability_id": str(s.ability_id) if s.ability_id else None,
         "created_at": s.created_at.isoformat() if s.created_at else None,
         "updated_at": s.updated_at.isoformat() if s.updated_at else None,
     }
@@ -113,22 +118,37 @@ class ScopeStore:
                 "agent_phase": m.agent_phase,
                 "setup_stage": m.setup_stage,
                 "stage_age_days": age_days,
+                "role_version": getattr(m, "role_version", 1) or 1,
                 "phase_entered_at": (
                     m.phase_entered_at.isoformat() if m.phase_entered_at else None
                 ),
             }
 
-    async def add(self, kind: str, name: str, *, why: str = "") -> dict[str, Any]:
+    @staticmethod
+    def _parse_ability_id(ability_id: str | None) -> uuid.UUID | None:
+        if not ability_id:
+            return None
+        try:
+            return uuid.UUID(str(ability_id))
+        except ValueError:
+            raise ValueError(f"ability_id is not a valid id: {ability_id}") from None
+
+    async def add(
+        self, kind: str, name: str, *, why: str = "", ability_id: str | None = None
+    ) -> dict[str, Any]:
         if kind not in SCOPE_KINDS:
             raise ValueError(f"kind must be one of {SCOPE_KINDS}")
         name = (name or "").strip()
         if not name:
             raise ValueError("scope name must be non-empty")
+        akey = self._parse_ability_id(ability_id)
         async with self._sf() as s:
             m = await self._active(s)
             if m is None:
                 raise ValueError("no active mission — set a mission first")
-            sc = Scope(mission_id=m.id, kind=kind, name=name, why=why.strip())
+            sc = Scope(
+                mission_id=m.id, kind=kind, name=name, why=why.strip(), ability_id=akey
+            )
             s.add(sc)
             await s.commit()
             return _scope_dict(sc)
@@ -140,6 +160,7 @@ class ScopeStore:
         status: str | None = None,
         evidence: str | None = None,
         why: str | None = None,
+        ability_id: str | None = None,
     ) -> dict[str, Any]:
         try:
             key = uuid.UUID(str(scope_id))
@@ -157,6 +178,8 @@ class ScopeStore:
                 sc.evidence = evidence.strip()
             if why is not None:
                 sc.why = why.strip()
+            if ability_id is not None:
+                sc.ability_id = self._parse_ability_id(ability_id)
             await s.commit()
             return _scope_dict(sc)
 
@@ -197,21 +220,30 @@ class ScopeStore:
             await s.commit()
         return {"agent_phase": to}
 
-    async def plan_change_add(self, entry: str) -> dict[str, Any]:
+    async def plan_change_add(self, entry: str, *, kind: str = "refine") -> dict[str, Any]:
         entry = (entry or "").strip()
         if not entry:
             raise ValueError("plan-change entry must be non-empty")
+        if kind not in PLAN_CHANGE_KINDS:
+            raise ValueError(f"kind must be one of {PLAN_CHANGE_KINDS}")
         async with self._sf() as s:
             m = await self._active(s)
             if m is None:
                 raise ValueError("no active mission — set a mission first")
-            pc = PlanChange(mission_id=m.id, entry=entry)
+            pc = PlanChange(mission_id=m.id, entry=entry, kind=kind)
             s.add(pc)
-            await s.commit()
-            return {
+            result = {
                 "entry": pc.entry,
-                "date": pc.created_at.date().isoformat(),
+                "kind": kind,
             }
+            if kind == "role_pivot":
+                # the bump and the log entry commit together — a pivot the
+                # pane can't stamp (or a stamp with no entry) must not exist
+                m.role_version = (m.role_version or 1) + 1
+                result["role_version"] = m.role_version
+            await s.commit()
+            result["date"] = pc.created_at.date().isoformat()
+            return result
 
     async def plan_changes(self) -> list[dict[str, Any]]:
         async with self._sf() as s:
@@ -225,7 +257,11 @@ class ScopeStore:
             )
             rows = (await s.execute(q)).scalars().all()
             return [
-                {"entry": pc.entry, "date": pc.created_at.date().isoformat()}
+                {
+                    "entry": pc.entry,
+                    "kind": getattr(pc, "kind", "refine") or "refine",
+                    "date": pc.created_at.date().isoformat(),
+                }
                 for pc in rows
             ]
 
@@ -272,7 +308,8 @@ def render_charter_page(
                      "you stopped learning.*")
     else:
         for pc in plan_changes:
-            lines.append(f"- {pc['date']}: {pc['entry']}")
+            mark = "🔄 ROLE PIVOT — " if pc.get("kind") == "role_pivot" else ""
+            lines.append(f"- {pc['date']}: {mark}{pc['entry']}")
     lines.append("")
     return "\n".join(lines)
 
@@ -323,9 +360,11 @@ async def ensure_charter_mirror(ctx: PluginContext, store: ScopeStore) -> str:
 def register_tools(ctx: PluginContext, store: ScopeStore) -> None:
     from . import telemetry
 
-    async def _set(kind: str, name: str, why: str = "") -> dict[str, Any]:
+    async def _set(
+        kind: str, name: str, why: str = "", ability_id: str | None = None
+    ) -> dict[str, Any]:
         try:
-            scope = await store.add(kind, name, why=why)
+            scope = await store.add(kind, name, why=why, ability_id=ability_id)
         except ValueError as e:
             return {"error": str(e)}
         await telemetry.emit_ui_event(ctx, "changed", {"what": "scope"})
@@ -336,9 +375,12 @@ def register_tools(ctx: PluginContext, store: ScopeStore) -> None:
         status: str | None = None,
         evidence: str | None = None,
         why: str | None = None,
+        ability_id: str | None = None,
     ) -> dict[str, Any]:
         try:
-            scope = await store.update(id, status=status, evidence=evidence, why=why)
+            scope = await store.update(
+                id, status=status, evidence=evidence, why=why, ability_id=ability_id
+            )
         except (ValueError, LookupError) as e:
             return {"error": str(e)}
         await telemetry.emit_ui_event(ctx, "changed", {"what": "scope"})
@@ -368,11 +410,13 @@ def register_tools(ctx: PluginContext, store: ScopeStore) -> None:
         result["wiki_mirror"] = await _mirror_to_wiki(ctx, store)
         return result
 
-    async def _note(entry: str) -> dict[str, Any]:
+    async def _note(entry: str, kind: str = "refine") -> dict[str, Any]:
         try:
-            change = await store.plan_change_add(entry)
+            change = await store.plan_change_add(entry, kind=kind)
         except ValueError as e:
             return {"error": str(e)}
+        if kind == "role_pivot":
+            await telemetry.emit_ui_event(ctx, "changed", {"what": "role_pivot"})
         return {"plan_change": change, "wiki_mirror": await _mirror_to_wiki(ctx, store)}
 
     async def _advance(to: str, waive: list | None = None, reason: str = "") -> dict[str, Any]:
@@ -433,7 +477,9 @@ def register_tools(ctx: PluginContext, store: ScopeStore) -> None:
                     "competent in before you can truly do the job. Kinds: "
                     "knowledge, people, communication_paths, tools_data_access, "
                     "workflow_approval, playbooks, routines_feedback. Created "
-                    "as status=missing; mirrors to [[role-charter]]."
+                    "as status=missing; mirrors to [[role-charter]]. Attach "
+                    "each scope to the ability it serves (ability_id from "
+                    "ability_list) — every scope belongs to an ability."
                 ),
                 parameters={
                     "type": "object",
@@ -446,6 +492,10 @@ def register_tools(ctx: PluginContext, store: ScopeStore) -> None:
                         "why": {
                             "type": "string",
                             "description": "Why the role needs it.",
+                        },
+                        "ability_id": {
+                            "type": "string",
+                            "description": "The ability this scope serves (from ability_list).",
                         },
                     },
                     "required": ["kind", "name"],
@@ -475,6 +525,10 @@ def register_tools(ctx: PluginContext, store: ScopeStore) -> None:
                             "description": "What proves the status — a wiki page, a validated run, an owner confirmation.",
                         },
                         "why": {"type": "string"},
+                        "ability_id": {
+                            "type": "string",
+                            "description": "Re-attach the scope to the ability it serves (from ability_list).",
+                        },
                     },
                     "required": ["id"],
                 },
@@ -506,8 +560,8 @@ def register_tools(ctx: PluginContext, store: ScopeStore) -> None:
                     "Mark the furthest setup-arc stage actually reached "
                     "(S0-S5 — the ladder is defined once in your "
                     "instructions: S2 = posted, S3 = owner RATIFIED charter "
-                    "+ success-criteria, S4 = workflow validated, S5 = "
-                    "feedback signals live). S3 and above require the "
+                    "+ job-description + success-criteria, S4 = workflow "
+                    "validated, S5 = feedback signals live). S3 and above require the "
                     "owner's explicit word; regress when a learning reopens "
                     "earlier work."
                 ),
@@ -530,14 +584,24 @@ def register_tools(ctx: PluginContext, store: ScopeStore) -> None:
                     "Append a dated entry to the charter's Plan-changes log: "
                     "what you added/dropped/reopened and the learning that "
                     "caused it. Every real plan change gets one — the living "
-                    "plan's audit trail the owner can read."
+                    "plan's audit trail the owner can read. kind='refine' "
+                    "(default) for within-ability learning you absorbed "
+                    "yourself; kind='role_pivot' ONLY when the learning "
+                    "changes the SHAPE of the role — a pivot bumps your job "
+                    "description's draft version and surfaces to the owner "
+                    "for input."
                 ),
                 parameters={
                     "type": "object",
                     "properties": {
                         "entry": {
                             "type": "string",
-                            "description": "The change + the learning, one or two lines.",
+                            "description": "The change + the learning, one or two lines. For a pivot: what I discovered → what changes → what I need from you.",
+                        },
+                        "kind": {
+                            "type": "string",
+                            "enum": list(PLAN_CHANGE_KINDS),
+                            "default": "refine",
                         },
                     },
                     "required": ["entry"],

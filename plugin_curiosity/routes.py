@@ -15,6 +15,7 @@ from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
 from . import comms, overview
+from .abilities import AbilityStore
 from .goals import GoalStore
 from .loops import LoopStore
 from .mission import MissionStore
@@ -54,6 +55,7 @@ def register_routes(app, ctx):
     # the same way); the app object has no add_event_handler.
     def _on_startup() -> None:
         from . import schedule_on_load_work
+        from .abilities import AbilityStore
         from .loops import LoopStore
         from .scopes import ScopeStore
 
@@ -66,6 +68,7 @@ def register_routes(app, ctx):
             reflections,
             ScopeStore(ctx.db_session_factory),
             LoopStore(ctx.db_session_factory),
+            AbilityStore(ctx.db_session_factory),
         )
 
     try:
@@ -127,6 +130,7 @@ def register_routes(app, ctx):
     goal_store = GoalStore(ctx.db_session_factory)
     loop_store = LoopStore(ctx.db_session_factory)
     heartbeat_store = HeartbeatStore(ctx.db_session_factory)
+    ability_store = AbilityStore(ctx.db_session_factory)
 
     @router.get("/missions/overview")
     async def missions_overview(user=Depends(get_current_user)):
@@ -137,6 +141,7 @@ def register_routes(app, ctx):
             goal_store=goal_store,
             loop_store=loop_store,
             heartbeat_store=heartbeat_store,
+            ability_store=ability_store,
         )
 
     @router.get("/missions/{mission_id}")

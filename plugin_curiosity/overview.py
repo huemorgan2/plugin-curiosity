@@ -32,10 +32,20 @@ from sqlalchemy import select
 from luna_sdk import PluginContext
 
 from . import telemetry
+from .abilities import AbilityStore
 from .goals import GoalStore
 from .loops import LoopStore, _loop_dict, _value_dict
 from .mission import MissionStore, _mission_dict
-from .models import HeartbeatReport, Loop, Mission, PlanChange, Scope, ValueEntry
+from .models import (
+    Ability,
+    AbilityTask,
+    HeartbeatReport,
+    Loop,
+    Mission,
+    PlanChange,
+    Scope,
+    ValueEntry,
+)
 from .scopes import _KIND_LABEL, SCOPE_KINDS, SETUP_STAGES, ScopeStore
 from .telemetry import HeartbeatStore
 
@@ -45,6 +55,7 @@ log = logging.getLogger("plugin-curiosity")
 # reading order. Labels say what each page IS (self-explanation layer 1).
 WIKI_SHELF = (
     ("mission", "Mission hub", "the mission statement and its trailhead"),
+    ("job-description", "Job description", "how Luna will do the job — her living draft"),
     ("role-charter", "Role charter", "scopes, stage marker, plan changes"),
     ("success-criteria", "Success criteria", "what success looks like — the scoreboard"),
     ("mission-goals", "Goals", "the dated commitments Luna scores weekly"),
@@ -58,8 +69,8 @@ WIKI_SHELF = (
 STAGE_LABELS = {
     "S0": ("understood", "mission restated sharper, first observations recorded"),
     "S1": ("inventoried", "scopes chartered, reachable tools verified, first value delivered"),
-    "S2": ("posted", "charter, success criteria and dated goals posted to the owner"),
-    "S3": ("ratified", "the owner ratified the charter and success criteria"),
+    "S2": ("posted", "job description, charter, success criteria and dated goals posted to the owner"),
+    "S3": ("ratified", "the owner ratified the job description, charter and success criteria"),
     "S4": ("validated", "one real workflow run validated end-to-end"),
     "S5": ("wired", "live feedback signals flowing per scope"),
 }
@@ -147,6 +158,60 @@ def parse_weekly_scores(body: str) -> list[dict[str, str]]:
             }
         )
     return scores
+
+
+# --- job-description parser (the structure prompts.JOB_DESCRIPTION_SHAPE ----
+# --- forces: four headed sections, bullets/numbered items inside) -----------
+
+# (key, the heading text the prompt mandates) — matching is case-insensitive
+# and ignores trailing punctuation, but never guesses a missing section.
+JD_SECTIONS = (
+    ("method", "how i will accomplish this mission"),
+    ("after_onboarding", "after onboarding"),
+    ("in_30_days", "in 30 days"),
+    ("working_assumptions", "working assumptions"),
+)
+
+_JD_ITEM = re.compile(r"^(?:[-*]|\d+[.)])\s+(.+)$")
+
+
+def parse_job_description(body: str) -> dict[str, Any]:
+    """The 4-block [[job-description]] structure. Bullets and numbered items
+    under each mandated `##` heading; free prose between items is kept as the
+    section's intro line. shape_ok only when all four sections exist with at
+    least one item each — otherwise the raw body rides along so the pane can
+    show what the agent actually wrote instead of guessing."""
+    wanted = {heading: key for key, heading in JD_SECTIONS}
+    sections: dict[str, dict[str, Any]] = {}
+    current: dict[str, Any] | None = None
+    for line in (body or "").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("##"):
+            title = stripped.lstrip("# ").strip().rstrip(":.").lower()
+            key = wanted.get(title)
+            current = None
+            if key is not None:
+                current = {"intro": "", "items": []}
+                sections[key] = current
+            continue
+        if current is None or not stripped:
+            continue
+        m = _JD_ITEM.match(stripped)
+        if m:
+            current["items"].append(m.group(1).strip())
+        elif not current["items"] and not current["intro"]:
+            current["intro"] = stripped
+    shape_ok = all(
+        key in sections and sections[key]["items"] for key, _ in JD_SECTIONS
+    )
+    out: dict[str, Any] = {
+        "exists": bool((body or "").strip()),
+        "shape_ok": shape_ok,
+        "sections": sections,
+    }
+    if not shape_ok:
+        out["raw"] = body or ""
+    return out
 
 
 def build_noc(criteria: list[dict], scores: list[dict]) -> dict[str, Any]:
@@ -263,10 +328,14 @@ def _overdue(loops_open: list[dict], now: datetime) -> list[dict]:
 
 
 def _needs_from_you(
-    loops_open: list[dict], setup_stage: str | None, agent_phase: str | None
+    loops_open: list[dict],
+    setup_stage: str | None,
+    agent_phase: str | None,
+    plan_changes: list[dict] | None = None,
 ) -> list[dict[str, Any]]:
     """What the owner can unblock right now — asks first, then anything
-    waiting on the owner, then the S2 ratification CTA."""
+    waiting on the owner, then role-pivot proposals awaiting a decision,
+    then the S2 ratification CTA."""
     needs: list[dict[str, Any]] = []
     for lp in loops_open:
         if lp["kind"] == "ask":
@@ -287,6 +356,14 @@ def _needs_from_you(
                     "loop_id": lp["id"],
                 }
             )
+    for pc in plan_changes or []:
+        needs.append(
+            {
+                "kind": "pivot",
+                "text": pc["entry"],
+                "date": pc.get("date", ""),
+            }
+        )
     if agent_phase == "setup" and setup_stage == "S2":
         needs.append(
             {
@@ -353,7 +430,20 @@ def _activity(
     """One merged, newest-first stream of everything that happened."""
     events: list[tuple[str, dict]] = []
     for pc in plan_changes:
-        events.append((pc["date"], {"kind": "plan", "text": pc["entry"], "at": pc["date"]}))
+        text = pc["entry"]
+        if pc.get("kind") == "role_pivot":
+            text = "ROLE PIVOT — " + text
+        events.append(
+            (
+                pc["date"],
+                {
+                    "kind": "plan",
+                    "text": text,
+                    "at": pc["date"],
+                    "change_kind": pc.get("kind", "refine"),
+                },
+            )
+        )
     for v in value_log:
         at = v.get("delivered_at") or ""
         events.append((at, {"kind": "value", "text": v["statement"], "at": at}))
@@ -385,6 +475,7 @@ async def build_overview(
     goal_store: GoalStore,
     loop_store: LoopStore,
     heartbeat_store: HeartbeatStore,
+    ability_store: AbilityStore | None = None,
 ) -> dict[str, Any]:
     from . import DEPENDENCIES, CuriosityPlugin, missing_dependencies  # runtime state, not import-time
 
@@ -411,6 +502,36 @@ async def build_overview(
     loops_open = [lp for lp in loops_all if lp["status"] == "open"]
     value_log = await loop_store.value_list()
     plan_changes = await scope_store.plan_changes()
+
+    # 10.001: the qualification ladder. setup_percent prefers the ability
+    # mean; a pre-0.9.0 mission with no abilities yet falls back to the
+    # 9.002 stage-weighted % so the dial never goes blank mid-upgrade.
+    abilities_list: list[dict[str, Any]] = []
+    ability_percent = None
+    if ability_store is not None:
+        listed = await ability_store.list()
+        abilities_list = listed["abilities"]
+        ability_percent = listed["setup_percent"]
+
+    # 10.001: the agent's own job description, parsed into the four blocks
+    # the prompts force (shape_ok=false carries the raw body instead).
+    job_description = None
+    if active is not None:
+        jd = parse_job_description(await wiki_page_body(ctx, "job-description"))
+        jd["role_version"] = active.get("role_version", 1)
+        pivots = [pc for pc in plan_changes if pc.get("kind") == "role_pivot"]
+        jd["latest_pivot"] = pivots[-1] if pivots else None
+        job_description = jd
+
+    # a pivot proposal is an owner decision — surface recent ones (14 days)
+    # in needs_from_you; older ones live on in the activity stream only
+    recent_pivots = [
+        pc
+        for pc in plan_changes
+        if pc.get("kind") == "role_pivot"
+        and (nd := _parse_dt(pc.get("date"))) is not None
+        and (now - nd).days <= 14
+    ]
     heartbeats = await heartbeat_store.list(
         limit=30, mission_id=active["id"] if active else None
     )
@@ -452,6 +573,8 @@ async def build_overview(
         if own:
             gap_board.append({"kind": kind, "label": _KIND_LABEL[kind], "scopes": own})
 
+    setup = _setup_checklist(setup_stage) if agent_phase == "setup" and setup_stage else None
+
     return {
         "generated_at": now.isoformat(),
         "plugin_version": CuriosityPlugin.manifest.version,
@@ -459,7 +582,16 @@ async def build_overview(
         "mission": active,
         "missions": all_missions,
         "state": state,
-        "setup": _setup_checklist(setup_stage) if agent_phase == "setup" and setup_stage else None,
+        "setup": setup,
+        # 10.001: the honest dial — ability-task mean when a ladder exists,
+        # the 9.002 stage % during the upgrade window, None with no mission
+        "setup_percent": (
+            ability_percent
+            if ability_percent is not None
+            else (setup["percent"] if setup else None)
+        ),
+        "abilities": abilities_list,
+        "job_description": job_description,
         "gap_board": gap_board,
         "goals": goals_list,
         "loops": {"open": loops_open, "overdue": len(overdue), "all_count": len(loops_all)},
@@ -468,7 +600,9 @@ async def build_overview(
         "heartbeats": {"latest": latest_hb, "recent": heartbeats[:10]},
         "pace": pace,
         "sentiment": sentiment,
-        "needs_from_you": _needs_from_you(loops_open, setup_stage, agent_phase),
+        "needs_from_you": _needs_from_you(
+            loops_open, setup_stage, agent_phase, recent_pivots
+        ),
         "next_up": _what_next(agent_phase, setup_stage, triggers),
         "wiki_shelf": shelf,
         "noc": noc,
@@ -508,16 +642,35 @@ async def mission_detail(sf, mission_id: str) -> dict[str, Any] | None:
             (await s.execute(select(HeartbeatReport).where(HeartbeatReport.mission_id == key).order_by(HeartbeatReport.created_at.desc()).limit(30)))
             .scalars().all()
         )
+        ability_rows = (
+            (await s.execute(select(Ability).where(Ability.mission_id == key).order_by(Ability.sort_order, Ability.created_at)))
+            .scalars().all()
+        )
+        from .abilities import _ability_dict
         from .scopes import _scope_dict
         from .telemetry import _report_dict
+
+        ability_dicts = []
+        for a in ability_rows:
+            task_rows = (
+                (await s.execute(select(AbilityTask).where(AbilityTask.ability_id == a.id).order_by(AbilityTask.sort_order)))
+                .scalars().all()
+            )
+            ability_dicts.append(_ability_dict(a, task_rows))
 
         return {
             "mission": _mission_dict(m),
             "scopes": [_scope_dict(sc) for sc in scopes_rows],
+            "abilities": ability_dicts,
             "loops": [_loop_dict(lp) for lp in loops_rows],
             "value_log": [_value_dict(v) for v in value_rows],
             "plan_changes": [
-                {"entry": pc.entry, "date": pc.created_at.date().isoformat()} for pc in pc_rows
+                {
+                    "entry": pc.entry,
+                    "date": pc.created_at.date().isoformat(),
+                    "kind": getattr(pc, "kind", "refine") or "refine",
+                }
+                for pc in pc_rows
             ],
             "heartbeats": [_report_dict(r) for r in hb_rows],
         }

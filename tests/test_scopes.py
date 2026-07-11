@@ -220,7 +220,12 @@ async def test_additive_migration_backfills_old_db():
         ))
         added = await conn.run_sync(apply_additive_migrations)
         assert added == [
-            "agent_phase", "phase_entered_at", "setup_stage", "stage_entered_at",
+            "curiosity_missions.agent_phase",
+            "curiosity_missions.phase_entered_at",
+            "curiosity_missions.setup_stage",
+            "curiosity_missions.stage_entered_at",
+            "curiosity_missions.role_version",
+            "curiosity_missions.wiki_id",
         ]
         assert await conn.run_sync(apply_additive_migrations) == []  # idempotent
 

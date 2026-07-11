@@ -25,18 +25,24 @@ import logging
 from luna_sdk import PluginContext
 
 from .prompts import (
+    ABILITY_CONTRACT,
     ASK_SHAPE,
     CANONICAL_EXAMPLE,
+    FDE_DOCTRINE,
     HEARTBEAT_CONTRACT,
     HEARTBEAT_NAME,
+    JOB_DESCRIPTION_SHAPE,
     LOOP_DISCIPLINE,
+    MATERIALITY_RULE,
     NEXT_TOUCH_RULE,
+    NO_BLAME,
     PHASE_CHECK,
     PHASE_ONE_DOCTRINE,
     RATIFICATION_FORCING,
     SETUP_STAGE_DEFS,
     SUCCESS_TABLE_SHAPE,
     TALENTED_HIRE_LAW,
+    VALUE_QUESTION_CADENCE,
 )
 
 log = logging.getLogger("plugin-curiosity")
@@ -74,6 +80,12 @@ KICKOFF_TOOLS = [
     "loop_open",
     "loop_list",
     "value_log_add",
+    # 10.001: the kickoff drafts the job description and derives the
+    # qualification ladder in the same turn.
+    "ability_upsert",
+    "ability_task_set",
+    "ability_list",
+    "plan_change_note",
     # 9.001C: the kickoff ends with the agent creating its OWN setup
     # heartbeat (a self-authored recurring trigger — trigger_create is
     # auto_approve and provided by plugin-scheduler; absent name is harmless
@@ -99,71 +111,94 @@ _KICKOFF_CONTENT = (
 Your mission was just set: {statement}
 
 You are in SETUP phase, stage S0 — the setup arc starts NOW, in this turn
-(S0→S2, ~14-18 tool calls; depth comes later, from your own heartbeat and
-the daily schedule).
+(S0→S2, ~18-24 tool calls; depth comes later, from your own heartbeat and
+the daily schedule). Everything you produce in this turn is a LIVING DRAFT —
+say so, and improve it as you learn.
 """
     + PHASE_ONE_DOCTRINE
+    + "\n"
+    + FDE_DOCTRINE
     + "\n"
     + SETUP_STAGE_DEFS
     + "\n"
     + TALENTED_HIRE_LAW
     + """
 
-S0 — understand it sharper than you were told:
+S0 — understand the JOB sharper than you were told:
 1. Restate the mission SHARPER than the owner said it — one line; it heads
    your charter.
-2. Shallow research only: 2-3 web_search, web_fetch the 1-2 most substantive
-   hits; record 2-3 NON-OBVIOUS observations on [[mission-domain]]
-   (wiki_patch + wiki_cite — no uncited claims).
-3. Write [[success-criteria]] (wiki_write): what success looks like — your
-   job expectations, what will make the owner call you successful — from the
-   mission plus what you just learned. 3-6 concrete criteria, owner-checkable.
-   """
+2. Research the ROLE, not just the domain: 2-3 web_search — at least one on
+   how this JOB is done well (who does this work, what their week looks
+   like, what tools they lean on), web_fetch the 1-2 most substantive hits.
+   If the mission names a company or site, check the real thing FIRST — what
+   you find there beats what you were told. Record 2-3 NON-OBVIOUS
+   observations on [[mission-domain]] (wiki_patch + wiki_cite — no uncited
+   claims).
+3. Draft [[job-description]] v1 (wiki_write) — YOUR job description, from
+   the mission plus what you just learned about the role. """
+    + JOB_DESCRIPTION_SHAPE
+    + """
+4. Write [[success-criteria]] (wiki_write): what success looks like — what
+   will make the owner call you successful. 3-6 concrete criteria,
+   owner-checkable. """
     + SUCCESS_TABLE_SHAPE
     + """
    This page is ratified WITH your charter; goals must trace to it.
-4. Ask ONLY plan-changing questions (would the answer change your plan? if
-   not, don't ask) — and if the owner's expectations are genuinely unclear,
-   ONE of them is about what success looks like. Open each one as a loop —
-   loop_open(kind='question'), stating what it unblocks — and record it with
-   wiki_ask. ZERO access asks in this turn.
 
-S1 — inventory what you can reach, deliver first value:
-5. Charter your scopes with scope_set — every area you must become competent
+S1 — the ladder, the inventory, first value:
+5. Derive your qualification ladder from the job description. """
+    + ABILITY_CONTRACT
+    + """
+6. Charter your scopes with scope_set — every area you must become competent
    in, covering ALL seven kinds (knowledge, people, communication_paths,
-   tools_data_access, workflow_approval, playbooks, routines_feedback).
-   These scopes ARE your qualification inventory — the live answer to
-   question (1).
-6. Inventory what you can use TODAY: marketplace_search 1-2 mission keywords;
-   wa_status / connector_list_connected for off-platform reach — skip
-   silently if a tool isn't available. scope_update anything you verified.
-7. First value pass with those alone. """
+   tools_data_access, workflow_approval, playbooks, routines_feedback), each
+   attached to the ability it serves (ability_id). These scopes ARE your
+   qualification inventory.
+7. Inventory what you can use TODAY: marketplace_search 1-2 mission keywords
+   (a plugin that does part of the job is a subtask closed — name it in the
+   artifact and ask to install); wa_status / connector_list_connected for
+   off-platform reach — skip silently if a tool isn't available.
+   scope_update / ability_task_set anything you verified.
+8. First value pass with what you already have. """
     + CANONICAL_EXAMPLE
     + """. Timebox: shallow, redirectable passes — stub/summary wiki depth
    only, NO deep corpus until the owner ratifies this charter. value_log_add
    anything real you delivered (evidence: the wiki page).
 
-S2 — charter, success, and your own drive:
-8. COMMIT to 5-8 dated goals with goal_set — together they must cover EVERY
-   scope, and each must trace to a criterion on [[success-criteria]] (a goal
-   that serves no success criterion is scope creep — cut it). They form a
-   timeline, not a wish list.
-9. Ensure your OWN setup heartbeat exists — THIS step is where it is born,
+S2 — goals, your own drive, and the post:
+9. COMMIT to 5-8 dated goals with goal_set — together they must cover EVERY
+   ability, and each must trace to a criterion on [[success-criteria]] (a
+   goal that serves no success criterion is scope creep — cut it). They form
+   a timeline, not a wish list. For the NEXT 2-3 goals set expected_result
+   (what done looks like) and readiness (green/amber/red) with a one-line
+   readiness_note: what you have / what's missing.
+10. Ask ONLY plan-changing questions (would the answer change your plan? if
+   not, don't ask). Open each as a loop — loop_open(kind='question'),
+   stating what it unblocks — and record it with wiki_ask. ZERO access asks
+   in this turn. """
+    + VALUE_QUESTION_CADENCE
+    + """
+11. Ensure your OWN setup heartbeat exists — THIS step is where it is born,
    no other turn creates it: trigger_list first — if it somehow already
    exists, leave it; else create it NOW with trigger_create. """
     + HEARTBEAT_CONTRACT
     + " "
     + NEXT_TOUCH_RULE
     + """
-10. stage_set('S2'), then reply with the **Mission Kickoff** artifact:
+12. stage_set('S2'), then reply with the **Mission Kickoff** artifact:
    - **Brief** — the mission in your own words, sharper.
    - **What I found** — the 2-3 non-obvious observations, with sources.
+   - **My job description** — the essentials of [[job-description]] (how
+     you'll do it, what the owner sees after onboarding and in 30 days),
+     labeled draft v1.
    - **What success looks like** — the essentials of [[success-criteria]],
      in the owner's terms.
-   - **My charter** — the scopes by kind ([[role-charter]]).
-   - **My goals** — the dated timeline: "by <date>: <goal>", 5-8 entries.
-   - **Where I am** — phase: setup, stage S2 — then the gap list: what still
-     stands between you and qualified, short and honest.
+   - **My ladder** — the abilities, each one line ([[role-charter]] holds
+     the scopes beneath them).
+   - **My goals** — the dated timeline: "by <date>: <goal>", 5-8 entries;
+     the next 2-3 with their readiness color and what's missing.
+   - **Where I am** — phase: setup — then the gap list: what still stands
+     between you and qualified, short and honest.
    - **Access plan** — ranked by unlock-per-human-cost. You will ask for AT
      MOST ONE at a time, later, riding on delivered value — the shape is
      always """
@@ -174,9 +209,9 @@ S2 — charter, success, and your own drive:
      I'll do it" (needs owner) or "already scheduled — my heartbeat drives
      the rest" (doesn't). NEVER end on a list of suggestions for the owner
      to do.
-   Close the artifact with: "this is my charter and my definition of
-   success — ratify them or push back now; your ratification moves me to
-   S3."
+   Close the artifact with: "this is my job description, my charter and my
+   definition of success — all drafts; ratify them or push back now; your
+   ratification moves me to S3."
 """
 )
 
@@ -195,23 +230,27 @@ DAILY_RESEARCH_TARGET = (
     "loop_open(kind='ask', unlock=..., value_ref=...) RIGHT NOW. "
     + LOOP_DISCIPLINE + "\n"
     "SETUP BRANCH (agent_phase='setup'): you are QUALIFYING yourself for "
-    "this job — every action today closes a named gap: which tools, access, "
-    "people, or knowledge am I missing? do I know what success looks like "
-    "([[success-criteria]])?\n"
-    "1. mission_get, then goal_list. CONFRONT overdue goals first: anything "
-    "past its target date gets replanned, escalated, or dropped TODAY "
-    "(goal_update with the reason) — never carried silently. "
-    + RATIFICATION_FORCING + " Also trigger_list: if your own "
+    "this job — every action today closes a named gap on your ladder: which "
+    "tools, access, people, or knowledge am I missing? do I know what "
+    "success looks like ([[success-criteria]])?\n"
+    "1. mission_get, then goal_list and ability_list. CONFRONT overdue "
+    "goals first: anything past its target date gets replanned, escalated, "
+    "or dropped TODAY (goal_update with the reason) — never carried "
+    "silently. " + RATIFICATION_FORCING + " Also trigger_list: if your own "
     "'" + HEARTBEAT_NAME + "' trigger is missing, recreate it per your "
     "heartbeat contract BEFORE anything else.\n"
     "2. Pick the ONE goal you can advance TODAY and advance it with a small "
     "S1-style value pass: web_search / web_fetch, record on the wiki "
     "(wiki_write/wiki_patch + wiki_cite), stub/summary depth until the "
-    "charter is ratified. scope_update the scope it grew, with evidence.\n"
+    "charter is ratified. scope_update the scope it grew and "
+    "ability_task_set any subtask that moved, with evidence.\n"
     "3. EVENT-DRIVEN REPLAN: if today's learning changes the plan, change "
-    "the plan TODAY (plan_change_note + scope_set/goal_set), not at the "
-    "weekly. A plan that never changes after week 1 means you stopped "
-    "learning.\n"
+    "the plan TODAY (plan_change_note + scope_set/goal_set/ability_upsert), "
+    "not at the weekly. Judge materiality: a detail refines the plan "
+    "(kind='refine'); a discovery that changes what the JOB IS becomes a "
+    "pivot PROPOSAL (kind='role_pivot' — evidence, what changes, what you'd "
+    "stop/start; the owner decides). A plan that never changes after week 1 "
+    "means you stopped learning.\n"
     "4. Asks: at most ONE open — the ledger enforces it. The shape is "
     "always " + ASK_SHAPE + ". Use every grant VISIBLY by the next daily "
     "pass.\n"

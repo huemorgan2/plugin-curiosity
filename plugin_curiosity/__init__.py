@@ -36,7 +36,8 @@ try:  # cores with plugin-owned panes (the 9.002 target) export it
 except ImportError:  # pragma: no cover - older core: no pane, plugin still loads
     SidebarSection = None
 
-from . import comms, goals, loops, mission, research, scopes, telemetry
+from . import abilities, comms, goals, loops, mission, research, scopes, telemetry
+from .abilities import AbilityStore
 from .goals import GoalStore
 from .loops import LoopStore
 from .mission import MissionStore, prompt_fragment, register_tools
@@ -56,6 +57,23 @@ INSTALL_KICKOFF_FLAG = "install_kickoff_sent"
 # 9.001G: at most one heartbeat nudge per UTC day — restarts must not turn
 # the safety net into a nag.
 HEARTBEAT_NUDGE_FLAG = "heartbeat_nudge_date"
+
+# 10.001: one-shot upgrade nudge — a pre-0.9.0 mission has scopes but no
+# ability ladder; the nudge tells the agent to derive one from its existing
+# scope ledger on the next heartbeat. Never re-sent once flagged.
+ABILITY_UPGRADE_FLAG = "ability_upgrade_nudge_sent"
+
+ABILITY_UPGRADE_NUDGE = (
+    "[curiosity] Your plugin was upgraded: you now keep a qualification "
+    "LADDER — 3-7 abilities ('Ability to …'), each with 2-6 concrete "
+    "subtasks, percents computed for you. Your mission predates this: you "
+    "have scopes but no ladder. On your NEXT setup-heartbeat fire (or now, "
+    "if the owner is around): derive your abilities from [[role-charter]] "
+    "and your scope ledger with ability_upsert, attach each scope to its "
+    "ability (scope_update ability_id), score the subtasks honestly with "
+    "ability_task_set, and draft [[job-description]] if it does not exist. "
+    "This is a ladder re-derivation, not new work — do not redo research."
+)
 
 # 9.002A: the hard-dependency gate. The manifest's depends_on is enforced by
 # the loader only for in-tree strict discovery; managed/marketplace installs
@@ -199,12 +217,44 @@ async def maybe_nudge_heartbeat(ctx: PluginContext, scope_store: ScopeStore) -> 
     return True
 
 
+async def maybe_nudge_ability_upgrade(
+    ctx: PluginContext, store: MissionStore, ability_store: AbilityStore
+) -> bool:
+    """10.001 upgrade path: active mission + zero abilities → one muted nudge
+    (ever) to derive the ladder from the existing scope ledger. Fresh 0.9.0
+    missions never hit this — the kickoff creates abilities in the same turn
+    the mission lands, before this on-load check can observe zero."""
+    sf = ctx.db_session_factory
+    if await _flag_get(sf, ABILITY_UPGRADE_FLAG) is not None:
+        return False
+    if await store.get() is None:
+        return False
+    listed = await ability_store.list()
+    if listed["abilities"]:
+        await _flag_set(sf, ABILITY_UPGRADE_FLAG, "skipped: abilities present")
+        return False
+    if not callable(getattr(ctx, "send_muted_message", None)):
+        return False
+    result = await ctx.send_muted_message(
+        "Your qualification ladder",
+        ABILITY_UPGRADE_NUDGE,
+        channel="moment",
+        source="curiosity",
+    )
+    if isinstance(result, dict) and result.get("error"):
+        log.info("ability upgrade nudge not delivered: %s", result["error"])
+        return False
+    await _flag_set(sf, ABILITY_UPGRADE_FLAG)
+    return True
+
+
 def schedule_on_load_work(
     ctx: PluginContext,
     store: MissionStore,
     reflections: comms.ReflectionLog,
     scope_store: ScopeStore | None = None,
     loop_store: LoopStore | None = None,
+    ability_store: AbilityStore | None = None,
 ) -> None:
     """Schedule the one-time on-load work on the current loop: drain any
     overnight-queued thoughts, send the one-time install kickoff if the loop
@@ -289,6 +339,12 @@ def schedule_on_load_work(
                     log.info("setup-heartbeat nudge posted")
             except Exception:  # noqa: BLE001
                 log.warning("heartbeat nudge on load failed", exc_info=True)
+        if ability_store is not None:
+            try:
+                if await maybe_nudge_ability_upgrade(ctx, store, ability_store):
+                    log.info("ability upgrade nudge posted")
+            except Exception:  # noqa: BLE001
+                log.warning("ability upgrade nudge on load failed", exc_info=True)
 
     # keep a strong ref — the loop itself only holds weak refs to tasks, and
     # a task sleeping through boot would otherwise be GC-able mid-flight
@@ -298,7 +354,7 @@ def schedule_on_load_work(
 class CuriosityPlugin(LunaPlugin):
     manifest = PluginManifest(
         name="plugin-curiosity",
-        version="0.8.1",
+        version="0.9.0",
         description=(
             "Mission-driven curiosity: research, wiki-building, nightly dreams, "
             "self-set goals, weekly mission reviews, proactive reflections, and "
@@ -323,6 +379,7 @@ class CuriosityPlugin(LunaPlugin):
         self._goals: GoalStore | None = None
         self._scopes: ScopeStore | None = None
         self._loops: LoopStore | None = None
+        self._abilities: AbilityStore | None = None
         self._heartbeats: HeartbeatStore | None = None
         self._reflections: comms.ReflectionLog | None = None
         self._activated = False
@@ -341,6 +398,7 @@ class CuriosityPlugin(LunaPlugin):
         self._goals = GoalStore(ctx.db_session_factory)
         self._scopes = ScopeStore(ctx.db_session_factory)
         self._loops = LoopStore(ctx.db_session_factory)
+        self._abilities = AbilityStore(ctx.db_session_factory)
         self._heartbeats = HeartbeatStore(ctx.db_session_factory)
         self._reflections = comms.ReflectionLog(ctx.db_session_factory)
         self._ctx = ctx
@@ -358,7 +416,12 @@ class CuriosityPlugin(LunaPlugin):
                 SYNC_ON_LOAD_DELAY_S,
             )
         schedule_on_load_work(
-            ctx, self._store, self._reflections, self._scopes, self._loops
+            ctx,
+            self._store,
+            self._reflections,
+            self._scopes,
+            self._loops,
+            self._abilities,
         )
 
     async def reevaluate_gate(self, ctx: PluginContext) -> list[str]:
@@ -386,6 +449,7 @@ class CuriosityPlugin(LunaPlugin):
         goals.register_tools(ctx, self._goals)
         scopes.register_tools(ctx, self._scopes)
         loops.register_tools(ctx, self._loops)
+        abilities.register_tools(ctx, self._abilities)
         comms.register_tools(ctx, self._reflections)
         telemetry.register_tools(ctx, self._heartbeats)
         # 8.1B: prompt primacy — on cores with the prompt.assemble hook, a
@@ -398,7 +462,7 @@ class CuriosityPlugin(LunaPlugin):
                 hooks.register("prompt.assemble", self._reorder_prompt, priority=60)
             except Exception:  # noqa: BLE001
                 log.warning("prompt.assemble registration failed", exc_info=True)
-        log.info("plugin-curiosity loaded (tools=20)")
+        log.info("plugin-curiosity loaded (tools=23)")
 
     async def maybe_send_blocked_notice(
         self, ctx: PluginContext, missing: list[str]

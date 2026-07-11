@@ -31,9 +31,9 @@ async def test_mission_set_spawns_kickoff_moment(ctx):
     assert post["channel"] == "moment"
     assert post["source"] == "curiosity"
     assert "grow signups" in post["content"]
-    # the artifact shape is instructed (9C setup arc): brief + charter +
-    # timeline + open questions
-    for marker in ("Brief", "My charter", "My goals", "Open questions"):
+    # the artifact shape is instructed (phase 10 setup arc): brief + job
+    # description + ladder + timeline + open questions
+    for marker in ("Brief", "My job description", "My ladder", "My goals", "Open questions"):
         assert marker in post["content"]
 
 

@@ -48,6 +48,12 @@ class Mission(Base):
     stage_entered_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # phase 10: the living-draft counter — a role_pivot plan change bumps it
+    # in the same transaction; the pane's "draft vN" stamp reads it.
+    role_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    # phase 10: reserved seam — bound when plugin-wiki ships multi-wiki
+    # (mission adoption creates a named wiki and stores its id here).
+    wiki_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
     )
@@ -95,6 +101,12 @@ class Goal(Base):
     target_date: Mapped[str] = mapped_column(String(64), default="", nullable=False)
     status: Mapped[str] = mapped_column(String(16), default="active", nullable=False, index=True)
     progress_note: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    # phase 10 goal-readiness triple: what done looks like, whether the agent
+    # HAS what the goal needs (green) / partly (amber) / is missing something
+    # (red), and the one-line have/missing explanation the pane renders.
+    expected_result: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    readiness: Mapped[str] = mapped_column(String(8), default="", nullable=False)
+    readiness_note: Mapped[str] = mapped_column(Text, default="", nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
     )
@@ -121,6 +133,9 @@ class Scope(Base):
     why: Mapped[str] = mapped_column(Text, default="", nullable=False)
     status: Mapped[str] = mapped_column(String(16), default="missing", nullable=False)
     evidence: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    # phase 10: which ability this scope serves (nullable — pre-10 rows and
+    # scopes chartered before the abilities exist stay unattached).
+    ability_id: Mapped[_uuid.UUID | None] = mapped_column(UUID(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
     )
@@ -140,8 +155,58 @@ class PlanChange(Base):
     id: Mapped[_uuid.UUID] = mapped_column(UUID(), primary_key=True, default=_uuid.uuid4)
     mission_id: Mapped[_uuid.UUID] = mapped_column(UUID(), nullable=False, index=True)
     entry: Mapped[str] = mapped_column(Text, nullable=False)
+    # phase 10 materiality rule: "refine" — within-ability learning, revised
+    # in place; "role_pivot" — the role's SHAPE changed (bumps
+    # missions.role_version in the same transaction, surfaces to the owner).
+    kind: Mapped[str] = mapped_column(String(16), default="refine", nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+
+
+class Ability(Base):
+    """One "Ability to …" item of the role's qualification ladder (phase 10).
+
+    The agent decomposes its job into 3-7 abilities (ability_upsert); each
+    ability carries 2-6 concrete subtasks whose statuses roll up to a
+    server-computed percent. The natural key is (mission_id, slug-of-title)
+    so concurrent re-derivations converge instead of duplicating.
+    """
+
+    __tablename__ = "curiosity_abilities"
+
+    id: Mapped[_uuid.UUID] = mapped_column(UUID(), primary_key=True, default=_uuid.uuid4)
+    mission_id: Mapped[_uuid.UUID] = mapped_column(UUID(), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    slug: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    why: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="building", nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+
+class AbilityTask(Base):
+    """One concrete subtask under an ability (phase 10). Percent math:
+    done=1, in_progress=0.5, missing/blocked=0 — computed server-side only
+    (agents never do arithmetic)."""
+
+    __tablename__ = "curiosity_ability_tasks"
+
+    id: Mapped[_uuid.UUID] = mapped_column(UUID(), primary_key=True, default=_uuid.uuid4)
+    ability_id: Mapped[_uuid.UUID] = mapped_column(UUID(), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    slug: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(16), default="missing", nullable=False)
+    note: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    evidence_ref: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
     )
 
 
@@ -239,6 +304,8 @@ ALL_TABLES = (
     Goal.__table__,
     Scope.__table__,
     PlanChange.__table__,
+    Ability.__table__,
+    AbilityTask.__table__,
     Loop.__table__,
     ValueEntry.__table__,
     HeartbeatReport.__table__,
@@ -246,29 +313,55 @@ ALL_TABLES = (
 )
 
 # Additive column migrations, applied on every load AFTER create(checkfirst):
-# create() skips existing tables, so a 0.6.0 database upgrading in place never
-# receives the 9A mission columns from metadata alone. DB-side DEFAULTs make
-# the backfill safe for existing rows (mirrors 8.2's spec-drift-repair lesson:
+# create() skips existing tables, so an older database upgrading in place
+# never receives new columns from metadata alone. DB-side DEFAULTs make the
+# backfill safe for existing rows (mirrors 8.2's spec-drift-repair lesson:
 # the upgrade path is the path real owners take).
-_MISSION_ADDITIVE_COLUMNS = (
-    ("agent_phase", "VARCHAR(8) NOT NULL DEFAULT 'setup'"),
-    ("phase_entered_at", "TIMESTAMP WITH TIME ZONE"),
-    ("setup_stage", "VARCHAR(4) NOT NULL DEFAULT 'S0'"),
-    # 9.001E
-    ("stage_entered_at", "TIMESTAMP WITH TIME ZONE"),
-)
+_ADDITIVE_COLUMNS: dict[str, tuple[tuple[str, str], ...]] = {
+    "curiosity_missions": (
+        ("agent_phase", "VARCHAR(8) NOT NULL DEFAULT 'setup'"),
+        ("phase_entered_at", "TIMESTAMP WITH TIME ZONE"),
+        ("setup_stage", "VARCHAR(4) NOT NULL DEFAULT 'S0'"),
+        # 9.001E
+        ("stage_entered_at", "TIMESTAMP WITH TIME ZONE"),
+        # phase 10
+        ("role_version", "INTEGER NOT NULL DEFAULT 1"),
+        ("wiki_id", "VARCHAR(64)"),
+    ),
+    "curiosity_goals": (
+        ("expected_result", "TEXT NOT NULL DEFAULT ''"),
+        ("readiness", "VARCHAR(8) NOT NULL DEFAULT ''"),
+        ("readiness_note", "TEXT NOT NULL DEFAULT ''"),
+    ),
+    "curiosity_scopes": (
+        # {UUID} resolves per dialect at apply time — Postgres UUID,
+        # everything else CHAR(32) (how sqlalchemy's Uuid stores on SQLite)
+        ("ability_id", "{UUID}"),
+    ),
+    "curiosity_plan_changes": (
+        ("kind", "VARCHAR(16) NOT NULL DEFAULT 'refine'"),
+    ),
+}
 
 
 def apply_additive_migrations(conn) -> list[str]:
-    """Sync callable for `conn.run_sync`: ALTER TABLE ADD COLUMN for any 9A
-    mission column missing from an existing database. Idempotent; returns the
-    columns it added (empty on a current schema)."""
+    """Sync callable for `conn.run_sync`: ALTER TABLE ADD COLUMN for any
+    column missing from an existing database. Idempotent; returns the columns
+    it added as 'table.column' (empty on a current schema). A table absent
+    entirely is skipped — table.create(checkfirst=True) runs in the same
+    on_load and builds it with the full current schema."""
     from sqlalchemy import inspect, text
 
-    existing = {c["name"] for c in inspect(conn).get_columns("curiosity_missions")}
+    insp = inspect(conn)
+    uuid_ddl = "UUID" if conn.dialect.name == "postgresql" else "CHAR(32)"
     added: list[str] = []
-    for name, ddl in _MISSION_ADDITIVE_COLUMNS:
-        if name not in existing:
-            conn.execute(text(f"ALTER TABLE curiosity_missions ADD COLUMN {name} {ddl}"))
-            added.append(name)
+    for table, columns in _ADDITIVE_COLUMNS.items():
+        if not insp.has_table(table):
+            continue
+        existing = {c["name"] for c in insp.get_columns(table)}
+        for name, ddl in columns:
+            if name not in existing:
+                ddl = ddl.replace("{UUID}", uuid_ddl)
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
+                added.append(f"{table}.{name}")
     return added
