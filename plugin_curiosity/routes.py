@@ -157,11 +157,11 @@ def register_routes(app, ctx):
     ui_dir = Path(__file__).parent / "ui"
     _NO_CACHE = {"Cache-Control": "no-cache"}
 
-    def _versioned_index() -> Response:
+    def _versioned_index(app_dir: Path) -> Response:
         from . import CuriosityPlugin
 
         v = CuriosityPlugin.manifest.version
-        html = (ui_dir / "index.html").read_text()
+        html = (app_dir / "index.html").read_text()
         html = html.replace('href="style.css"', f'href="style.css?v={v}"')
         html = html.replace('src="app.js"', f'src="app.js?v={v}"')
         return Response(content=html, media_type="text/html", headers=_NO_CACHE)
@@ -169,9 +169,19 @@ def register_routes(app, ctx):
     @router.get("/ui/")
     async def serve_ui_root():
         if (ui_dir / "index.html").exists():
-            return _versioned_index()
+            return _versioned_index(ui_dir)
         return Response(
             content="<h1>plugin-curiosity UI not shipped</h1>", media_type="text/html"
+        )
+
+    # 10.002: the NOC pane — a second static app behind its own sidebar
+    # section (SidebarSection.path="ui/noc/", luna 031).
+    @router.get("/ui/noc/")
+    async def serve_noc_root():
+        if (ui_dir / "noc" / "index.html").exists():
+            return _versioned_index(ui_dir / "noc")
+        return Response(
+            content="<h1>plugin-curiosity NOC UI not shipped</h1>", media_type="text/html"
         )
 
     @router.get("/ui/{path:path}")
@@ -181,9 +191,12 @@ def register_routes(app, ctx):
         target = (ui_dir / path).resolve()
         if not str(target).startswith(str(ui_dir.resolve())):
             raise HTTPException(403, "Forbidden")
+        # a directory hit (e.g. "noc") serves that app's stamped index
+        if target.is_dir() and (target / "index.html").exists():
+            return _versioned_index(target)
         if not target.exists():
             if (ui_dir / "index.html").exists():
-                return _versioned_index()
+                return _versioned_index(ui_dir)
             raise HTTPException(404, "Not found")
         return FileResponse(str(target), headers=_NO_CACHE)
 

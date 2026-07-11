@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NOC</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- Blocked screen: a hard dependency is missing. -->
+  <div id="blocked" class="blocked hidden">
+    <div class="blocked-card">
+      <div class="blocked-icon">⏸</div>
+      <div class="eyebrow">NOC</div>
+      <h1>Luna is paused — something she needs is missing</h1>
+      <p class="blocked-lead">Knowledge lives in the wiki, drive lives in the scheduler.</p>
+      <div id="blocked-deps"></div>
+      <a id="blocked-cta" class="cta" href="#" target="_top">Open the marketplace</a>
+    </div>
+  </div>
+
+  <!-- Empty state: running, no mission yet. -->
+  <div id="empty" class="empty hidden">
+    <div class="blocked-card">
+      <div class="blocked-icon">◎</div>
+      <div class="eyebrow">NOC</div>
+      <h1>Nothing to operate yet</h1>
+      <p class="blocked-lead">Give Luna a mission in chat and this becomes her operations wall: heartbeat, scores, activity, machinery.</p>
+    </div>
+  </div>
+
+  <div id="app" class="app hidden">
+    <!-- Status band: the operational chips live HERE, not on Missions -->
+    <header class="band">
+      <div class="band-left">
+        <span class="eyebrow">Network operations</span>
+        <span id="phase-chip" class="chip"></span>
+      </div>
+      <div class="band-right">
+        <span id="chip-autonomy" class="chip"></span>
+        <span id="chip-risk" class="chip"></span>
+        <span id="pace" class="chip pace"></span>
+        <span id="pulse" class="pulse"><span class="pulse-dot"></span><span id="pulse-label">no pulse yet</span></span>
+      </div>
+    </header>
+
+    <!-- Hero strip: the one gradient — the operational bottom line -->
+    <section class="hero">
+      <div class="hero-label">Status</div>
+      <div id="status-line" class="hero-statement"></div>
+      <div id="status-meta" class="hero-meta"></div>
+    </section>
+
+    <main class="grid">
+      <section id="noc-panel" class="panel wide hidden">
+        <h2>Role wall <span class="sub">every success criterion, scored weekly</span>
+          <span class="help" data-tip="Criteria come from the success-criteria page you ratified. Each week's review appends a score line; uptime is the share of scored weeks on-track or met.">i</span>
+        </h2>
+        <div id="noc-tiles" class="noc-tiles"></div>
+        <div id="noc-incidents" class="incidents"></div>
+      </section>
+
+      <section id="heartbeat-panel" class="panel">
+        <h2>Heartbeat <span class="sub">Luna wrote this trigger herself</span>
+          <span class="help" data-tip="Every fire ends with a structured report: streak = consecutive clean fires, gaps = what still blocks 'qualified', wobbles = what broke this fire. Morale is Luna's word; the colors come from the numbers.">i</span>
+        </h2>
+        <div id="hb-latest"></div>
+        <div id="hb-history" class="hb-history"></div>
+      </section>
+
+      <section id="gaps-panel" class="panel">
+        <h2>Gap board <span class="sub">what competent looks like, scope by scope</span>
+          <span class="help" data-tip="Luna charters her own scopes across seven kinds (knowledge, people, tools…) and tracks each: missing → in progress → competent. Competence can be revoked when a later discovery invalidates it.">i</span>
+        </h2>
+        <div id="gaps"></div>
+      </section>
+
+      <section id="next-panel" class="panel">
+        <h2>What happens next <span class="sub">no magic — this is the actual machinery</span></h2>
+        <div id="next"></div>
+      </section>
+
+      <section id="activity-panel" class="panel">
+        <h2>Activity <span class="sub">plan changes, wins, loops, heartbeats — one stream</span></h2>
+        <div id="activity"></div>
+      </section>
+
+      <section id="wiki-panel" class="panel wide">
+        <h2>Knowledge shelf <span class="sub">every page Luna keeps for you</span></h2>
+        <div id="wiki" class="shelf"></div>
+      </section>
+
+      <section id="history-panel" class="panel wide hidden">
+        <h2>Past missions</h2>
+        <div id="history"></div>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <span id="foot-note"></span>
+      <span id="foot-updated"></span>
+    </footer>
+  </div>
+
+  <div id="tip" class="tip hidden"></div>
+  <script src="app.js"></script>
+</body>
+</html>

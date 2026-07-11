@@ -49,6 +49,10 @@ def _install_luna_sdk_stub() -> None:
 
         return Base
 
+    async def get_current_user():  # 10.002: routes import this at registration
+        return None
+
+    mod.get_current_user = get_current_user
     mod.LunaPlugin = LunaPlugin
     mod.PluginContext = PluginContext
     mod.PluginManifest = PluginManifest

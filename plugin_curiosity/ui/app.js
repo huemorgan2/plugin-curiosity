@@ -1,6 +1,6 @@
-// Missions pane — plugin-curiosity's iframe app (9.002D).
-// Mission control for the agent's curiosity: hand-written JS, no framework.
-// Auth + live-bridge handshake follow plugin-marketplace's pane verbatim.
+// Missions pane (10.002) — the owner-facing summary: mission, job
+// description, setup ladder, goals. Everything operational lives in the NOC
+// pane. Auth + live-bridge handshake follow plugin-marketplace's pane.
 
 const PLUGIN = 'plugin-curiosity';
 // Agent base path (e.g. "/a/<slug>") from this iframe's own URL — the API
@@ -25,7 +25,7 @@ window.addEventListener('message', (e) => {
   if (d.type === 'luna-plugin-event') {
     if (d.event === 'ui.section.reclick') load();
     if (d.event === 'changed') scheduleLoad();
-    if (d.event === 'heartbeat') { beatPulse(); scheduleLoad(); }
+    if (d.event === 'heartbeat') scheduleLoad();
   }
 });
 
@@ -66,9 +66,20 @@ function scheduleLoad() {
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s == null ? '' : s)
+  .replace(/\[\[([^\]]+)\]\]/g, '$1') // agent notes carry [[wiki-link]] markup — owners see plain words
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 function show(id, on) { $(id).classList.toggle('hidden', !on); }
+
+function dateOf(iso) { return iso ? String(iso).slice(0, 10) : ''; }
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+function shortDate(iso) {
+  const d = dateOf(iso);
+  if (!d) return '';
+  const [, m, day] = d.split('-');
+  return `${MONTHS[Number(m) - 1]} ${Number(day)}`;
+}
 
 function ago(iso) {
   if (!iso) return '';
@@ -82,8 +93,6 @@ function ago(iso) {
   return `${Math.floor(h / 24)}d ago`;
 }
 
-function dateOf(iso) { return iso ? String(iso).slice(0, 10) : ''; }
-
 // ---- render -------------------------------------------------------------------
 
 function render() {
@@ -92,57 +101,14 @@ function render() {
   if (!o.mission) { show('blocked', false); show('app', false); show('empty', true); return; }
   show('blocked', false); show('empty', false); show('app', true);
 
-  const phase = o.state ? o.state.agent_phase : 'setup';
-  $('phase-dial').innerHTML =
-    `<span class="seg${phase === 'setup' ? ' on' : ''}" data-tip="Phase one: qualify for the job — understand, inventory, post, get ratified, validate, wire feedback.">setup</span>` +
-    `<span class="seg${phase === 'work' ? ' on' : ''}" data-tip="Phase two: execute the role with mastery; the weekly review scores every success criterion.">work</span>`;
-
-  $('chip-autonomy').innerHTML = `autonomy <b>rung ${esc(o.mission.autonomy_rung)}</b>`;
-  $('chip-risk').innerHTML = `risk <b>${esc(o.mission.risk_ceiling)}</b>`;
-
-  // pace chip (server-computed — the honest half of contentment)
-  const pace = o.pace;
-  const paceEl = $('pace');
-  if (pace) {
-    paceEl.className = `chip pace ${pace.band}`;
-    paceEl.innerHTML = `pace <b>${esc(pace.band)}</b>`;
-    paceEl.dataset.tip = 'Computed on the server from clock facts, never vibes: ' +
-      (pace.reasons || []).join('; ') + '.';
-  }
-
-  // heartbeat pulse chip
-  const hb = o.heartbeats && o.heartbeats.latest;
-  const pulse = $('pulse');
-  pulse.classList.toggle('alive', !!hb);
-  $('pulse-label').textContent = hb ? `last pulse ${ago(hb.created_at)}` : 'no pulse yet';
-
-  // hero
-  $('mission-statement').textContent = o.mission.statement;
-  const since = dateOf(o.mission.created_at);
-  const stage = o.state && phase === 'setup' ? ` · stage ${o.state.setup_stage}` : '';
-  $('mission-meta').textContent = `since ${since}${stage} · ${o.loops.open.length} open loop(s) · ${o.value_log.length} win(s) delivered`;
-
-  const moraleEl = $('morale');
-  if (hb && hb.morale) {
-    moraleEl.className = `hero-morale ${o.sentiment || 'neutral'}`;
-    moraleEl.innerHTML = `<span class="band-dot"></span>feeling <span class="word">“${esc(hb.morale)}”</span><span class="muted">— its own words, ${ago(hb.created_at)}</span>`;
-    moraleEl.classList.remove('hidden');
-  } else {
-    moraleEl.classList.add('hidden');
-  }
-
+  renderHero(o);
   renderNeeds(o);
-  renderSetup(o, phase);
-  renderNoc(o);
-  renderGaps(o);
+  renderPivot(o);
+  renderJd(o);
+  renderSetup(o);
   renderGoals(o);
-  renderHeartbeat(o);
-  renderNext(o);
-  renderActivity(o);
-  renderShelf(o);
-  renderHistory(o);
 
-  $('foot-note').textContent = `plugin-curiosity ${o.plugin_version} · live via the plugin bridge, refetch every 60s as fallback`;
+  $('foot-note').textContent = `plugin-curiosity ${o.plugin_version} · operations detail lives in the NOC pane`;
   $('foot-updated').textContent = `updated ${new Date().toLocaleTimeString()}`;
 }
 
@@ -158,8 +124,31 @@ function renderBlocked(b) {
   $('blocked-cta').href = `${BASE}/#marketplace`;
 }
 
+// 1 · ACTIVE MISSION — statement, plain-word phase, morale
+function renderHero(o) {
+  const phase = o.state ? o.state.agent_phase : 'setup';
+  $('mission-statement').textContent = o.mission.statement;
+  $('mission-phase').textContent = phase === 'work'
+    ? 'Working the mission — the job is running.'
+    : 'Onboarding — I’m setting myself up to do this job well.';
+  const wins = (o.value_log || []).length;
+  const open = ((o.loops || {}).open || []).length;
+  $('mission-meta').textContent =
+    `since ${dateOf(o.mission.created_at)} · ${wins} win${wins === 1 ? '' : 's'} delivered · ${open} open thread${open === 1 ? '' : 's'}`;
+
+  const hb = o.heartbeats && o.heartbeats.latest;
+  const moraleEl = $('morale');
+  if (hb && hb.morale) {
+    moraleEl.className = `hero-morale ${o.sentiment || 'neutral'}`;
+    moraleEl.innerHTML = `<span class="band-dot"></span>feeling <span class="word">“${esc(hb.morale)}”</span><span class="muted">— her own words, ${ago(hb.created_at)}</span>`;
+  } else {
+    moraleEl.classList.add('hidden');
+  }
+}
+
+// Needs strip — asks only; pivots get their own card below
 function renderNeeds(o) {
-  const needs = o.needs_from_you || [];
+  const needs = (o.needs_from_you || []).filter((n) => n.kind !== 'pivot');
   show('needs', needs.length > 0);
   $('needs-list').innerHTML = needs.map((n) => {
     let extra = '';
@@ -168,139 +157,169 @@ function renderNeeds(o) {
   }).join('');
 }
 
-function renderSetup(o, phase) {
-  const s = o.setup;
-  show('setup-panel', !!s && phase === 'setup');
-  if (!s) return;
-  $('setup-ring').style.setProperty('--p', s.percent);
-  $('setup-pct').textContent = `${s.percent}%`;
-  const cur = s.stages.find((x) => x.status === 'current');
-  $('setup-current').innerHTML = cur
-    ? `working toward <b>${cur.id} — ${esc(cur.label)}</b>: ${esc(cur.detail)}`
-    : '<b>setup complete</b> — graduation to work mode is next';
-  $('setup-list').innerHTML = s.stages.map((st) =>
-    `<li class="${st.status}"><span class="mark">${st.status === 'done' ? '✓' : st.status === 'current' ? '▸' : ''}</span>` +
-    `<span class="sid">${st.id}</span><span><span class="lbl">${esc(st.label)}</span> <span class="det">— ${esc(st.detail)}</span></span></li>`
-  ).join('');
+// Role pivot card — a big change the owner decides on
+function renderPivot(o) {
+  const pivot = (o.needs_from_you || []).find((n) => n.kind === 'pivot');
+  show('pivot-card', !!pivot);
+  if (!pivot) return;
+  $('pivot-headline').textContent = 'Big change: the job itself looks different than we thought';
+  $('pivot-why').textContent = pivot.text;
 }
 
-function renderNoc(o) {
-  const noc = o.noc;
-  show('noc-panel', !!noc && noc.tiles.length > 0);
-  if (!noc || !noc.tiles.length) return;
-  $('noc-tiles').innerHTML = noc.tiles.map((t) => {
-    const st = t.latest ? t.latest.status : 'unscored';
-    const up = t.uptime_pct == null ? '' : `<span class="up">${t.uptime_pct}% over ${t.scored_weeks}w</span>`;
-    return `<div class="tile ${st}"><div class="crit">${esc(t.criterion)}</div>` +
-      `<div class="meas">${esc(t.measure)} → ${esc(t.target)} (${esc(t.horizon)})</div>` +
-      `<div class="status-row"><span class="st">${esc(st)}</span>${up}</div>` +
-      (t.latest && t.latest.evidence ? `<div class="meas" style="margin-top:6px">${esc(t.latest.evidence)}</div>` : '') +
-      `</div>`;
+// 2 · JOB DESCRIPTION — living draft, four blocks, assumption check-dots
+const JD_BLOCKS = [
+  ['method', 'How I will do the job', 'numbered'],
+  ['after_onboarding', 'After onboarding', 'bullet'],
+  ['in_30_days', 'In 30 days', 'bullet'],
+  ['working_assumptions', 'Working assumptions', 'assumption'],
+];
+
+function renderJd(o) {
+  const jd = o.job_description;
+  const head = $('jd-headline');
+  const stamp = $('jd-stamp');
+  const blocks = $('jd-blocks');
+  if (!jd || !jd.exists) {
+    head.textContent = 'I haven’t written my job description yet';
+    stamp.textContent = 'It lands with kickoff — the first thing I do after adopting a mission.';
+    blocks.innerHTML = '';
+    return;
+  }
+  const rev = jd.latest_pivot
+    ? ` · revised ${esc(jd.latest_pivot.date)} — the job changed`
+    : '';
+  stamp.innerHTML = `Living draft <b>v${esc(jd.role_version)}</b>${rev} · I keep this current as I learn.`;
+
+  if (!jd.shape_ok) {
+    head.textContent = 'My job description, as I wrote it';
+    blocks.innerHTML =
+      '<p class="support dim">This draft doesn’t follow my usual four-block shape yet — here it is verbatim.</p>' +
+      `<div class="jd-raw">${esc(jd.raw || '')}</div>`;
+    return;
+  }
+
+  const method = jd.sections.method;
+  head.textContent = (method.items[0] || 'My job, in my own words').replace(/\*\*/g, '');
+  blocks.innerHTML = JD_BLOCKS.map(([key, label, kind]) => {
+    const sec = jd.sections[key];
+    if (!sec) return '';
+    const intro = sec.intro ? `<p class="jd-intro">${esc(sec.intro)}</p>` : '';
+    const items = sec.items.map((it, i) => {
+      const text = esc(it).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+      if (kind === 'numbered') return `<li><span class="n">${i + 1}.</span><span>${text}</span></li>`;
+      if (kind === 'assumption') {
+        // check-dots: ◐ checking by default; ● when the agent marked it
+        // verified; ✕ when it marked it broken/revised
+        let cls = 'checking', glyph = '◐';
+        if (/^\s*(✓|\[?verified\]?)/i.test(it)) { cls = 'verified'; glyph = '●'; }
+        if (/^\s*(✕|\[?(broken|revised|wrong)\]?)/i.test(it)) { cls = 'broken'; glyph = '✕'; }
+        return `<li><span class="adot ${cls}">${glyph}</span><span>${text}</span></li>`;
+      }
+      return `<li><span class="dot"></span><span>${text}</span></li>`;
+    }).join('');
+    const tag = kind === 'numbered' ? 'ol' : 'ul';
+    return `<div class="jd-block"><h3>${esc(label)}</h3>${intro}<${tag}>${items}</${tag}></div>`;
   }).join('');
-  $('noc-incidents').innerHTML = (noc.incidents || []).map((i) =>
-    `<div class="incident"><span class="d">${esc(i.date)}</span><span class="s ${i.status}">${esc(i.status)}</span><span>${esc(i.criterion)} — ${esc(i.evidence)}</span></div>`
-  ).join('');
 }
 
-function renderGaps(o) {
-  const board = o.gap_board || [];
-  $('gaps').innerHTML = board.length
-    ? board.map((k) =>
-        `<div class="gap-kind"><h3>${esc(k.label)}</h3>` +
-        k.scopes.map((sc) =>
-          `<div class="scope ${sc.status}"><span class="dot"></span><span>${esc(sc.name)}</span>` +
-          (sc.evidence ? `<span class="ev">${esc(sc.evidence)}</span>` : '') + `</div>`
-        ).join('') + `</div>`
-      ).join('')
-    : '<div class="muted">No scopes chartered yet — S1 is where the agent inventories what competent means for this role.</div>';
+// 3 · SETUP — ring + ability rows (expand → subtasks)
+function renderSetup(o) {
+  const pct = o.setup_percent;
+  const abilities = o.abilities || [];
+  show('setup-panel', pct != null || abilities.length > 0);
+  if (pct == null && !abilities.length) return;
+
+  const phase = o.state ? o.state.agent_phase : 'setup';
+  const p = pct == null ? 0 : pct;
+  $('setup-ring').style.setProperty('--p', p);
+  $('setup-pct').textContent = `${p}%`;
+  $('setup-headline').textContent = phase === 'work'
+    ? 'Setup complete — now it’s about the work'
+    : `Setup — ${p}% complete`;
+  $('setup-support').textContent = phase === 'work'
+    ? 'These are the abilities the job runs on. I keep scoring them honestly.'
+    : 'Each ability is something I need before I’m fully qualified. Click one to see the checklist behind its number.';
+
+  $('abilities').innerHTML = abilities.map((a) => {
+    const subtasks = (a.tasks || []).map((t) =>
+      `<div class="subtask ${esc(t.status)}"><span class="dot"></span><span>${esc(t.title)}` +
+      (t.note ? ` <span class="note">— ${esc(t.note)}</span>` : '') + `</span></div>`
+    ).join('');
+    return `<details class="ability">` +
+      `<summary><span class="a-tw">▸</span><span class="a-title">${esc(a.title)}</span>` +
+      `<span class="a-bar"><i style="width:${a.percent}%"></i></span>` +
+      `<span class="a-pct">${a.percent}%</span></summary>` +
+      `<div class="subtasks">${subtasks || '<div class="muted">no checklist yet</div>'}</div>` +
+      `</details>`;
+  }).join('') || '<div class="muted">The qualification ladder lands with kickoff.</div>';
+}
+
+// 4 · GOALS — headline, timeline dots, next 2–3 as two-liners
+const STOPWORDS = new Set(['the', 'a', 'an', 'to', 'and', 'of', 'for', 'in', 'on', 'at', 'by', 'with', 'my', 'our', 'first']);
+
+function bubbleWord(statement) {
+  const words = String(statement || '').replace(/[^\w\s%€$-]/g, '').split(/\s+/);
+  const w = words.find((x) => x && !STOPWORDS.has(x.toLowerCase())) || words[0] || '';
+  return w.length > 12 ? w.slice(0, 11) + '…' : w;
+}
+
+function bubbleNumber(g) {
+  const hay = `${g.statement || ''} ${g.expected_result || ''}`;
+  const m = hay.match(/[€$]\s?\d[\d,.]*|\d[\d,.]*\s?%|\b\d[\d,.]*\b/);
+  if (m) return m[0].replace(/\s/g, '');
+  return shortDate(g.target_date);
 }
 
 function renderGoals(o) {
-  const goals = o.goals || [];
-  $('goals').innerHTML = goals.length
-    ? goals.map((g) =>
-        `<div class="goal ${g.status}"><div class="row"><span class="st">${esc(g.status)}</span>` +
-        `<span>${esc(g.statement)}</span>` +
-        (g.target_date ? `<span class="due">${esc(g.target_date)}</span>` : '') + `</div>` +
-        (g.progress_note ? `<div class="note">${esc(g.progress_note)}</div>` : '') + `</div>`
-      ).join('')
-    : '<div class="muted">No goals committed yet — they arrive with the mission kickoff.</div>';
-}
+  const goals = (o.goals || []).filter((g) => g.target_date).slice()
+    .sort((a, b) => String(a.target_date).localeCompare(String(b.target_date)));
+  const undated = (o.goals || []).filter((g) => !g.target_date);
+  show('goals-panel', goals.length + undated.length > 0);
+  if (!goals.length && !undated.length) return;
 
-function renderHeartbeat(o) {
-  const latest = o.heartbeats && o.heartbeats.latest;
-  const recent = (o.heartbeats && o.heartbeats.recent) || [];
-  if (!latest) {
-    $('hb-latest').innerHTML = '<div class="muted">No reports yet. The agent authors its own heartbeat trigger during setup; every fire ends with a structured report that lands here.</div>';
-    $('hb-history').innerHTML = '';
-    return;
+  const upcoming = goals.filter((g) => g.status === 'active' || g.status === 'stalled');
+  const next = upcoming[0];
+  $('goals-headline').textContent = next
+    ? `Next: ${next.statement} — ${shortDate(next.target_date)}`
+    : 'All dated goals are settled';
+
+  // timeline: dot per dated goal, bubbles on the near ones only
+  const tl = $('goal-timeline');
+  if (goals.length >= 2) {
+    const t0 = new Date(goals[0].target_date).getTime();
+    const t1 = new Date(goals[goals.length - 1].target_date).getTime();
+    const span = Math.max(t1 - t0, 1);
+    const nextIdx = next ? goals.indexOf(next) : -1;
+    tl.innerHTML = '<div class="rail"></div>' + goals.map((g, i) => {
+      const x = 6 + 88 * ((new Date(g.target_date).getTime() - t0) / span); // 6%..94%
+      const far = nextIdx >= 0 && i > nextIdx + 2; // bubbles: past + next 3, dots beyond
+      const cls = [g.status, i === nextIdx ? 'next' : '', far ? 'far' : ''].filter(Boolean).join(' ');
+      return `<div class="tl-goal ${cls}" style="left:${x}%">` +
+        `<span class="bubble"><b>${esc(bubbleWord(g.statement))}</b>${esc(bubbleNumber(g))}</span>` +
+        `<span class="tdot"></span><span class="tdate">${esc(shortDate(g.target_date))}</span></div>`;
+    }).join('');
+    tl.classList.remove('hidden');
+  } else {
+    tl.innerHTML = '';
   }
-  $('hb-latest').innerHTML =
-    `<div class="hb-now">` +
-    `<div class="hb-num"><b>${latest.streak}</b><span>streak</span></div>` +
-    `<div class="hb-num"><b>${latest.gaps_open}</b><span>gaps open</span></div>` +
-    `<div class="hb-num"><b>${latest.wobbles}</b><span>wobbles</span></div>` +
-    `</div>` +
-    (latest.note ? `<div class="hb-note">“${esc(latest.note)}”</div>` : '');
-  $('hb-history').innerHTML = recent.slice(1, 8).map((h) =>
-    `<div class="hb-row"><span class="t">${ago(h.created_at)}</span>` +
-    `<span>streak ${h.streak} · ${h.gaps_open} gaps · ${h.wobbles} wobbles</span>` +
-    (h.morale ? `<span class="m">${esc(h.morale)}</span>` : '') + `</div>`
-  ).join('');
-}
 
-function renderNext(o) {
-  const items = o.next_up || [];
-  $('next').innerHTML = items.length
-    ? items.map((n) =>
-        `<div class="next-item"><span class="k">${esc(n.kind)}</span><span>${esc(n.title)}` +
-        (n.detail ? ` <span class="det">${esc(n.detail)}</span>` : '') + `</span></div>`
-      ).join('')
-    : '<div class="muted">Nothing scheduled — if this persists, the heartbeat trigger may be missing (the weekly review will catch it).</div>';
-}
-
-function renderActivity(o) {
-  const acts = o.activity || [];
-  $('activity').innerHTML = acts.length
-    ? acts.map((a) =>
-        `<div class="act"><span class="t">${esc(dateOf(a.at) || a.at)}</span>` +
-        `<span class="k ${a.kind}">${esc(a.kind)}</span><span class="x">${esc(a.text)}</span></div>`
-      ).join('')
-    : '<div class="muted">Quiet so far.</div>';
-}
-
-function renderShelf(o) {
-  $('wiki').innerHTML = (o.wiki_shelf || []).map((p) => {
-    if (!p.exists) {
-      return `<div class="page absent"><div class="pt">${esc(p.label)}</div><div class="pr">${esc(p.role)}</div><div class="pa">not written yet</div></div>`;
-    }
-    const age = p.age_days == null ? '' : p.age_days === 0 ? 'updated today' : `updated ${p.age_days}d ago`;
-    const cls = p.age_days == null ? '' : p.age_days <= 2 ? 'fresh' : p.age_days >= 14 ? 'stale' : '';
-    return `<div class="page"><div class="pt">${esc(p.title || p.label)}</div>` +
-      `<div class="pr">${esc(p.summary || p.role)}</div>` +
-      `<div class="pa ${cls}">${age}</div></div>`;
+  // next 2–3, two lines each: required result, then readiness
+  const READY = { green: '🟢', amber: '🟠', red: '🔴' };
+  $('goal-next').innerHTML = upcoming.slice(0, 3).map((g, i) => {
+    const result = g.expected_result || g.statement;
+    const ready = g.readiness
+      ? `<div class="g-ready ${esc(g.readiness)}">${READY[g.readiness] || ''} ${esc(g.readiness_note || g.readiness)}</div>`
+      : '';
+    return `<li><span class="gn">${i + 1}</span><div>` +
+      `<div class="g-result">${esc(result)}<span class="due">${esc(shortDate(g.target_date))}</span></div>` +
+      ready + `</div></li>`;
   }).join('');
 }
 
-function renderHistory(o) {
-  const past = (o.missions || []).filter((m) => !m.active);
-  show('history-panel', past.length > 0);
-  $('history').innerHTML = past.map((m) =>
-    `<div class="hist"><span class="d">${esc(dateOf(m.created_at))}</span><span class="x">${esc(m.statement)}</span></div>`
-  ).join('');
-}
-
-function beatPulse() {
-  const p = $('pulse');
-  p.classList.remove('beating');
-  void p.offsetWidth; // restart the animation
-  p.classList.add('beating');
-}
-
-// ---- tooltips (the "how is this computed" layer) ----------------------------
+// ---- tooltips: only behind the (i) affordances ------------------------------
 
 document.addEventListener('mouseover', (e) => {
-  const el = e.target.closest('[data-tip]');
+  const el = e.target.closest('.help[data-tip]');
   const tip = $('tip');
   if (!el || !el.dataset.tip) { tip.classList.add('hidden'); return; }
   tip.textContent = el.dataset.tip;
