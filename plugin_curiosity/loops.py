@@ -324,21 +324,26 @@ def render_value_page(entries: list[dict[str, Any]]) -> str:
 
 
 async def _mirror_to_wiki(ctx: PluginContext, store: LoopStore) -> str:
+    from . import wikibind
+
     try:
         wiki = ctx.provider_registry.get("wiki")
     except Exception:  # noqa: BLE001
         return "wiki provider unavailable — loop pages not mirrored"
     try:
+        wk = await wikibind.wiki_kwargs(ctx, store._sf)  # noqa: SLF001
         loops = await store.list()
         open_count = sum(1 for lp in loops if lp["status"] == "open")
         await wiki.upsert_page(
             LOOPS_SLUG, "Open Loops", render_loops_page(loops),
             summary=f"{open_count} open loop(s)", note="loop ledger write-through",
+            **wk,
         )
         values = await store.value_list()
         await wiki.upsert_page(
             VALUE_SLUG, "Value Log", render_value_page(values),
             summary=f"{len(values)} receipt(s)", note="value log write-through",
+            **wk,
         )
         return "ok"
     except Exception as e:  # noqa: BLE001
@@ -349,14 +354,17 @@ async def _mirror_to_wiki(ctx: PluginContext, store: LoopStore) -> str:
 async def ensure_loop_mirrors(ctx: PluginContext, store: LoopStore) -> str:
     """Upgrade path (on-load): a pre-9B mission gets [[open-loops]] and
     [[value-log]] seeded once when absent."""
+    from . import wikibind
+
     async with store._sf() as s:  # noqa: SLF001
         if await store._mission(s) is None:  # noqa: SLF001
             return "no mission"
     try:
         wiki = ctx.provider_registry.get("wiki")
+        wk = await wikibind.wiki_kwargs(ctx, store._sf)  # noqa: SLF001
         if (
-            await wiki.get_page(LOOPS_SLUG) is not None
-            and await wiki.get_page(VALUE_SLUG) is not None
+            await wiki.get_page(LOOPS_SLUG, **wk) is not None
+            and await wiki.get_page(VALUE_SLUG, **wk) is not None
         ):
             return "already present"
     except Exception:  # noqa: BLE001

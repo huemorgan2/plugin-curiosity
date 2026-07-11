@@ -222,7 +222,7 @@ def test_contracts_ride_every_setup_surface():
     from plugin_curiosity.research import _KICKOFF_CONTENT, DAILY_RESEARCH_TARGET
     from plugin_curiosity.review import WEEKLY_REVIEW_TARGET
 
-    kickoff = _KICKOFF_CONTENT.format(statement="x")
+    kickoff = _KICKOFF_CONTENT.format(statement="x", wiki_note="")
     for const in (
         FDE_DOCTRINE,
         JOB_DESCRIPTION_SHAPE,

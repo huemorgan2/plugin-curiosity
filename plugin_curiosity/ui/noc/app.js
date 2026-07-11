@@ -243,7 +243,9 @@ function renderHistory(o) {
   const past = (o.missions || []).filter((m) => !m.active);
   show('history-panel', past.length > 0);
   $('history').innerHTML = past.map((m) =>
-    `<div class="hist"><span class="d">${esc(dateOf(m.created_at))}</span><span class="x">${esc(m.statement)}</span></div>`
+    `<div class="hist"><span class="d">${esc(dateOf(m.created_at))}</span><span class="x">${esc(m.statement)}</span>` +
+    (m.wiki_id ? `<span class="wk">its wiki lives on: ${esc(m.wiki_id)}</span>` : '') +
+    `</div>`
   ).join('');
 }
 

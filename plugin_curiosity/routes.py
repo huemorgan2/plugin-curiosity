@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
-from . import comms, overview
+from . import comms, overview, wikibind
 from .abilities import AbilityStore
 from .goals import GoalStore
 from .loops import LoopStore
@@ -116,10 +116,12 @@ def register_routes(app, ctx):
     async def status(user=Depends(get_current_user)):
         try:
             wiki = ctx.provider_registry.get("wiki")
+            wk = await wikibind.wiki_kwargs(ctx, ctx.db_session_factory)
             return {
                 "wiki_provider": "resolved",
-                "wiki_pages": await wiki.page_count(),
-                "wiki_open_questions": len(await wiki.open_questions()),
+                "mission_wiki": wk.get("wiki"),
+                "wiki_pages": await wiki.page_count(**wk),
+                "wiki_open_questions": len(await wiki.open_questions(**wk)),
             }
         except Exception as e:  # noqa: BLE001 — status must not 500
             return {"wiki_provider": "unavailable", "error": str(e)}

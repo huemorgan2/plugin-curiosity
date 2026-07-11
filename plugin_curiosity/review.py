@@ -19,19 +19,22 @@ from __future__ import annotations
 from .prompts import (
     ASK_SHAPE,
     HEARTBEAT_NAME,
+    OWNER_WORDS,
     PHASE_CHECK,
     PHASE_ONE_DOCTRINE,
     RATIFICATION_FORCING,
     SETUP_STAGE_DEFS,
     SETUP_WEEKLY_TITLE,
     WEEKLY_SCORES_SHAPE,
+    WIKI_BINDING,
     WORK_WEEKLY_TITLE,
 )
 
 WEEKLY_REVIEW_TARGET = (
     "[curiosity] Weekly review — your scoreboard turn; the owner should feel "
     "a driven operator reporting, not a librarian summarizing. One focused "
-    "pass (~10 tool calls). " + PHASE_CHECK + "\n"
+    "pass (~10 tool calls). " + PHASE_CHECK + " " + WIKI_BINDING + " "
+    + OWNER_WORDS + "\n"
     "Common prep (both branches): mission_get; goal_list and score every "
     "goal HONESTLY with goal_update — moved / done / stalled / dropped; a "
     "goal stalled 2+ weeks must be confronted (change the approach, ask what "
@@ -60,8 +63,10 @@ WEEKLY_REVIEW_TARGET = (
     "Post ONE share_thought(kind='review', title='" + SETUP_WEEKLY_TITLE
     + "'), citing [[mission-goals]] and [[role-charter]], in this exact "
     "shape:\n"
-    "   - **Phase line** — open with: phase setup, stage Sx, N gaps between "
-    "me and qualified (count them from your scopes + open questions).\n"
+    "   - **Where I am** — open with the phase and stage in plain words "
+    "(e.g. 'setting up — posted, awaiting your ratification') and N gaps "
+    "between me and qualified (count them from your scopes + open "
+    "questions); never a stage code.\n"
     "   - **Success check** — score the week against [[success-criteria]]: "
     "am I becoming the agent that page describes? If the page is still "
     "un-ratified, say so — ratification is the ask below. "
@@ -79,8 +84,8 @@ WEEKLY_REVIEW_TARGET = (
     "   - **Plan changes** — added / dropped / reopened this week, each with "
     "the learning that caused it; 'none' is a finding too — say it plainly.\n"
     "   - **Road to work mode** — where the heartbeat streak stands against "
-    "its convergence criterion; S4: has a workflow validation run "
-    "happened?; S5: which scopes have live feedback signals? Propose "
+    "its convergence criterion; has a workflow validation run happened? "
+    "which scopes have live feedback signals? Propose "
     "graduation (phase_advance) ONLY when every scope is competent or "
     "explicitly waivable AND the heartbeat streak has converged, citing "
     "per-scope signals — and on graduation demote your heartbeat to a "

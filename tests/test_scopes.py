@@ -110,7 +110,8 @@ async def test_charter_mirror_write_through(sctx):
     assert res["wiki_mirror"] == "ok"
     wiki = sctx.provider_registry.get("wiki")
     body = wiki.pages["role-charter"]["body"]
-    assert body.startswith("**Stage: S0 — phase: setup**")
+    # 0.9.2: owner-facing charter opens in plain words, never a stage code
+    assert body.startswith("**Where I am: setup phase — understood**")
     assert "newsletter audience" in body and "⬜" in body
 
     upd = await call(sctx, "scope_update", id=res["scope"]["id"], status="competent",
@@ -120,7 +121,9 @@ async def test_charter_mirror_write_through(sctx):
     assert "✅" in body and "[[audience-map]] written" in body
 
     await call(sctx, "stage_set", stage="S3")
-    assert wiki.pages["role-charter"]["body"].startswith("**Stage: S3 — phase: setup**")
+    assert wiki.pages["role-charter"]["body"].startswith(
+        "**Where I am: setup phase — ratified**"
+    )
 
     note = await call(sctx, "plan_change_note", entry="Reopened audience scope — list migrated")
     assert note["plan_change"]["date"]
@@ -146,7 +149,7 @@ async def test_phase_gate(sctx, sstore):
     wiki = sctx.provider_registry.get("wiki")
     body = wiki.pages["role-charter"]["body"]
     assert "waived" in body and "owner said skip it" in body
-    assert body.startswith("**Stage: S0 — phase: work**")
+    assert body.startswith("**Where I am: work phase — understood**")
 
     # regression to setup always allowed, logged
     res = await call(sctx, "phase_advance", to="setup", reason="role shifted to events")

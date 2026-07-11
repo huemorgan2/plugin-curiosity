@@ -193,6 +193,7 @@ body {
 .hist:first-child { border-top: 0; }
 .hist .d { flex: none; width: 88px; color: var(--faint); font-size: 12px; }
 .hist .x { color: var(--dim); }
+.hist .wk { flex: none; margin-left: auto; color: var(--faint); font-size: 11px; }
 
 .foot { display: flex; justify-content: space-between; margin-top: 18px; font-size: 11.5px; color: var(--faint); }
 

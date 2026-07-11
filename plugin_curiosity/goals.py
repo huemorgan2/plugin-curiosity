@@ -164,11 +164,14 @@ def render_goals_page(goals: list[dict[str, Any]]) -> str:
 
 
 async def _mirror_to_wiki(ctx: PluginContext, store: GoalStore) -> str:
+    from . import wikibind
+
     try:
         wiki = ctx.provider_registry.get("wiki")
     except Exception:  # noqa: BLE001
         return "wiki provider unavailable — goals page not mirrored"
     try:
+        wk = await wikibind.wiki_kwargs(ctx, store._sf)  # noqa: SLF001
         goals = await store.list()
         await wiki.upsert_page(
             "mission-goals",
@@ -176,6 +179,7 @@ async def _mirror_to_wiki(ctx: PluginContext, store: GoalStore) -> str:
             render_goals_page(goals),
             summary=f"{sum(1 for g in goals if g['status'] == 'active')} active goal(s)",
             note="goal ledger write-through",
+            **wk,
         )
         return "ok"
     except Exception as e:  # noqa: BLE001

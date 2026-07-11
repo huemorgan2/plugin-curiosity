@@ -31,7 +31,7 @@ from sqlalchemy import select
 
 from luna_sdk import PluginContext
 
-from . import telemetry
+from . import telemetry, wikibind
 from .abilities import AbilityStore
 from .goals import GoalStore
 from .loops import LoopStore, _loop_dict, _value_dict
@@ -46,7 +46,13 @@ from .models import (
     Scope,
     ValueEntry,
 )
-from .scopes import _KIND_LABEL, SCOPE_KINDS, SETUP_STAGES, ScopeStore
+from .scopes import (
+    _KIND_LABEL,
+    SCOPE_KINDS,
+    SETUP_STAGES,
+    STAGE_LABELS,
+    ScopeStore,
+)
 from .telemetry import HeartbeatStore
 
 log = logging.getLogger("plugin-curiosity")
@@ -66,14 +72,8 @@ WIKI_SHELF = (
     ("setup-heartbeat", "Heartbeat journal", "verdict lines from every heartbeat fire"),
 )
 
-STAGE_LABELS = {
-    "S0": ("understood", "mission restated sharper, first observations recorded"),
-    "S1": ("inventoried", "scopes chartered, reachable tools verified, first value delivered"),
-    "S2": ("posted", "job description, charter, success criteria and dated goals posted to the owner"),
-    "S3": ("ratified", "the owner ratified the job description, charter and success criteria"),
-    "S4": ("validated", "one real workflow run validated end-to-end"),
-    "S5": ("wired", "live feedback signals flowing per scope"),
-}
+# STAGE_LABELS moved to scopes.py in 0.9.2 (the charter mirror needs the
+# words too) and is re-exported via the import above.
 
 SCORE_STATUSES = ("on-track", "at-risk", "met", "missed")
 
@@ -128,6 +128,24 @@ def parse_criteria_table(body: str) -> list[dict[str, str]]:
 _SCORE_LINE = re.compile(r"^[-*]\s+(.+)$")
 
 
+def _score_from_text(text: str) -> dict[str, str] | None:
+    """One `<date> | <criterion> | <status> | <evidence>` score, or None when
+    the line doesn't parse — shared by the bespoke body parser and the
+    provider get_section item path."""
+    parts = [p.strip() for p in (text or "").split("|")]
+    if len(parts) < 3:
+        return None
+    status = parts[2].lower()
+    if status not in SCORE_STATUSES:
+        return None
+    return {
+        "date": parts[0],
+        "criterion": parts[1],
+        "status": status,
+        "evidence": parts[3] if len(parts) > 3 else "",
+    }
+
+
 def parse_weekly_scores(body: str) -> list[dict[str, str]]:
     """`- <date> | <criterion> | <status> | <evidence>` lines under the
     '## Weekly scores' heading. Newest last (append-only by contract)."""
@@ -143,20 +161,9 @@ def parse_weekly_scores(body: str) -> list[dict[str, str]]:
         m = _SCORE_LINE.match(stripped)
         if not m:
             continue
-        parts = [p.strip() for p in m.group(1).split("|")]
-        if len(parts) < 3:
-            continue
-        status = parts[2].lower()
-        if status not in SCORE_STATUSES:
-            continue
-        scores.append(
-            {
-                "date": parts[0],
-                "criterion": parts[1],
-                "status": status,
-                "evidence": parts[3] if len(parts) > 3 else "",
-            }
-        )
+        score = _score_from_text(m.group(1))
+        if score is not None:
+            scores.append(score)
     return scores
 
 
@@ -236,12 +243,23 @@ def build_noc(criteria: list[dict], scores: list[dict]) -> dict[str, Any]:
 
 
 # --- best-effort cross-plugin reads -----------------------------------------
+# All wiki reads take wk — {"wiki": slug} when the active mission is bound to
+# its own wiki (0.9.2), {} for the global namespace / older wiki plugins.
 
 
-async def wiki_shelf(ctx: PluginContext) -> list[dict[str, Any]]:
+def _wiki_provider(ctx: PluginContext):
     try:
-        wiki = ctx.provider_registry.get("wiki")
+        return ctx.provider_registry.get("wiki")
     except Exception:  # noqa: BLE001
+        return None
+
+
+async def wiki_shelf(
+    ctx: PluginContext, wk: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
+    wk = wk or {}
+    wiki = _wiki_provider(ctx)
+    if wiki is None:
         return [
             {"slug": slug, "label": label, "role": role, "exists": False}
             for slug, label, role in WIKI_SHELF
@@ -250,7 +268,7 @@ async def wiki_shelf(ctx: PluginContext) -> list[dict[str, Any]]:
     for slug, label, role in WIKI_SHELF:
         entry: dict[str, Any] = {"slug": slug, "label": label, "role": role, "exists": False}
         try:
-            page = await wiki.get_page(slug)
+            page = await wiki.get_page(slug, **wk)
         except Exception:  # noqa: BLE001
             page = None
         if page:
@@ -265,13 +283,94 @@ async def wiki_shelf(ctx: PluginContext) -> list[dict[str, Any]]:
     return shelf
 
 
-async def wiki_page_body(ctx: PluginContext, slug: str) -> str:
+async def wiki_page_body(
+    ctx: PluginContext, slug: str, wk: dict[str, Any] | None = None
+) -> str:
     try:
         wiki = ctx.provider_registry.get("wiki")
-        page = await wiki.get_page(slug)
+        page = await wiki.get_page(slug, **(wk or {}))
         return (page or {}).get("body", "") or ""
     except Exception:  # noqa: BLE001
         return ""
+
+
+async def read_job_description(
+    ctx: PluginContext, wk: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """The 4-block [[job-description]]: provider extraction (wiki 0.7.0
+    get_section) first, the bespoke parser as the forever-fallback. The
+    provider result is used only when it yields the full shape — anything
+    less falls through so the pane still shows what the agent wrote."""
+    wk = wk or {}
+    wiki = _wiki_provider(ctx)
+    if wiki is not None and callable(getattr(wiki, "get_section", None)):
+        try:
+            sections: dict[str, dict[str, Any]] = {}
+            for key, heading in JD_SECTIONS:
+                sec = await wiki.get_section("job-description", heading, **wk)
+                if not sec:
+                    continue
+                intro = next(
+                    (
+                        ln.strip()
+                        for ln in (sec.get("text") or "").splitlines()
+                        if ln.strip() and not _JD_ITEM.match(ln.strip())
+                    ),
+                    "",
+                )
+                sections[key] = {"intro": intro, "items": sec.get("items") or []}
+            if all(key in sections and sections[key]["items"] for key, _ in JD_SECTIONS):
+                return {"exists": True, "shape_ok": True, "sections": sections}
+        except Exception:  # noqa: BLE001
+            log.debug("provider JD extraction failed; using bespoke parser", exc_info=True)
+    return parse_job_description(await wiki_page_body(ctx, "job-description", wk))
+
+
+async def read_noc_inputs(
+    ctx: PluginContext, wk: dict[str, Any] | None = None
+) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    """(criteria, scores) off [[success-criteria]]: provider get_table /
+    get_section when the wiki plugin has them, the bespoke body parsers
+    otherwise. Either half can fall back independently."""
+    wk = wk or {}
+    wiki = _wiki_provider(ctx)
+    criteria: list[dict[str, str]] | None = None
+    scores: list[dict[str, str]] | None = None
+    if wiki is not None and callable(getattr(wiki, "get_table", None)):
+        try:
+            table = await wiki.get_table("success-criteria", **wk)
+            cols = [c.strip().lower() for c in (table or {}).get("columns") or []]
+            if table and cols[:4] == ["criterion", "measure", "target", "horizon"]:
+                criteria = [
+                    {
+                        "criterion": r[0],
+                        "measure": r[1],
+                        "target": r[2],
+                        "horizon": r[3],
+                    }
+                    for r in table.get("rows") or []
+                    if len(r) >= 4
+                ]
+        except Exception:  # noqa: BLE001
+            criteria = None
+    if wiki is not None and callable(getattr(wiki, "get_section", None)):
+        try:
+            sec = await wiki.get_section("success-criteria", "weekly scores", **wk)
+            if sec is not None:
+                scores = [
+                    s
+                    for s in (_score_from_text(item) for item in sec.get("items") or [])
+                    if s is not None
+                ]
+        except Exception:  # noqa: BLE001
+            scores = None
+    if criteria is None or scores is None:
+        body = await wiki_page_body(ctx, "success-criteria", wk)
+        if criteria is None:
+            criteria = parse_criteria_table(body)
+        if scores is None:
+            scores = parse_weekly_scores(body)
+    return criteria, scores
 
 
 async def trigger_snapshot(ctx: PluginContext) -> list[dict[str, Any]]:
@@ -295,6 +394,9 @@ async def trigger_snapshot(ctx: PluginContext) -> list[dict[str, Any]]:
                 "schedule": t.get("schedule") or t.get("cron") or t.get("spec") or "",
                 "next_fire_at": t.get("next_fire_at") or t.get("next_run_at"),
                 "enabled": t.get("enabled", True),
+                # provenance (scheduler 0.3.0) — absent keys on older stacks
+                "purpose": t.get("purpose") or "",
+                "created_by": t.get("created_by") or "",
             }
         )
     return out
@@ -388,8 +490,13 @@ def _what_next(
         if idx + 1 < len(SETUP_STAGES):
             nxt = SETUP_STAGES[idx + 1]
             label, detail = STAGE_LABELS[nxt]
+            # plain words only (ux_guidelines §4) — the S-code stays internal
             items.append(
-                {"kind": "stage", "title": f"Earn {nxt} ({label})", "detail": detail}
+                {
+                    "kind": "stage",
+                    "title": f"Step {idx + 2} of {len(SETUP_STAGES)} — {label}",
+                    "detail": detail,
+                }
             )
         else:
             items.append(
@@ -408,11 +515,14 @@ def _what_next(
             }
         )
     for t in triggers:
+        schedule = t.get("schedule", "")
+        purpose = t.get("purpose", "")
         items.append(
             {
                 "kind": "trigger",
                 "title": t["name"],
-                "detail": t.get("schedule", ""),
+                # the provenance label leads when the scheduler carries one
+                "detail": f"{purpose} · {schedule}" if purpose and schedule else (purpose or schedule),
                 "next_fire_at": t.get("next_fire_at"),
             }
         )
@@ -492,6 +602,9 @@ async def build_overview(
 
     all_missions = await missions.list_all()
     active = next((m for m in all_missions if m["active"]), None)
+    # 0.9.2: every wiki read below is scoped to the active mission's own wiki
+    # when one is bound AND the installed wiki plugin takes the kwarg
+    wk = await wikibind.wiki_kwargs(ctx, missions._sf)  # noqa: SLF001
     state = await scope_store.state()
     agent_phase = state["agent_phase"] if state else None
     setup_stage = state["setup_stage"] if state else None
@@ -517,10 +630,23 @@ async def build_overview(
     # the prompts force (shape_ok=false carries the raw body instead).
     job_description = None
     if active is not None:
-        jd = parse_job_description(await wiki_page_body(ctx, "job-description"))
+        jd = await read_job_description(ctx, wk)
         jd["role_version"] = active.get("role_version", 1)
         pivots = [pc for pc in plan_changes if pc.get("kind") == "role_pivot"]
         jd["latest_pivot"] = pivots[-1] if pivots else None
+        # 0.9.2: the living-draft stamp prefers real edit history (wiki 0.7.0
+        # revisions) — count + latest date only; revision notes are internal
+        wiki = _wiki_provider(ctx)
+        if wiki is not None and callable(getattr(wiki, "revisions", None)):
+            try:
+                revs = await wiki.revisions("job-description", **wk)
+                if revs:
+                    jd["revisions"] = {
+                        "count": len(revs),
+                        "latest": revs[0].get("created_at"),
+                    }
+            except Exception:  # noqa: BLE001
+                log.debug("jd revisions read failed", exc_info=True)
         job_description = jd
 
     # a pivot proposal is an owner decision — surface recent ones (14 days)
@@ -557,13 +683,11 @@ async def build_overview(
         )
 
     triggers = await trigger_snapshot(ctx)
-    shelf = await wiki_shelf(ctx)
+    shelf = await wiki_shelf(ctx, wk)
 
     noc = None
     if agent_phase == "work" or setup_stage in ("S2", "S3", "S4", "S5"):
-        body = await wiki_page_body(ctx, "success-criteria")
-        criteria = parse_criteria_table(body)
-        scores = parse_weekly_scores(body)
+        criteria, scores = await read_noc_inputs(ctx, wk)
         if criteria or scores:
             noc = build_noc(criteria, scores)
 

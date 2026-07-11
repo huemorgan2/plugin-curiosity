@@ -17,6 +17,7 @@ mission_* also matches the wiki_*/trigger_*/playbook_* convention.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 from typing import Any
 
@@ -24,7 +25,7 @@ from sqlalchemy import select, update
 
 from luna_sdk import PluginContext, ToolDef
 
-from . import dream, prompts, research, review, telemetry
+from . import dream, prompts, research, review, telemetry, wikibind
 from .models import Mission
 
 log = logging.getLogger("plugin-curiosity")
@@ -40,17 +41,22 @@ RISK_CEILINGS = ("low", "medium", "high")
 # inside quiet hours (the dream's share_thought queues until morning) and away
 # from any daytime turn load.
 MISSION_SCHEDULES: list[dict[str, str]] = [
+    # "purpose" is the owner-facing provenance label (scheduler 0.3.0); it is
+    # stripped from the payload when the installed plugin-scheduler predates
+    # the parameter.
     {
         "name": "curiosity-daily-research",
         "schedule_expr": "every day at 09:00",
         "action_type": "agent_prompt",
         "target": research.DAILY_RESEARCH_TARGET,
+        "purpose": "daily learning pass on the mission",
     },
     {
         "name": "curiosity-nightly-dream",
         "schedule_expr": "every day at 02:00",
         "action_type": "agent_prompt",
         "target": dream.DREAM_TARGET,
+        "purpose": "nightly consolidation of the day's learning",
     },
     # 8.2: the weekly scoreboard turn — goals scored, setup audited, one ask.
     # Monday 09:30 keeps it clear of the 09:00 daily research fire.
@@ -59,6 +65,7 @@ MISSION_SCHEDULES: list[dict[str, str]] = [
         "schedule_expr": "every monday at 09:30",
         "action_type": "agent_prompt",
         "target": review.WEEKLY_REVIEW_TARGET,
+        "purpose": "weekly scoreboard for the owner",
     },
 ]
 
@@ -118,19 +125,28 @@ async def ensure_success_criteria_page(ctx: PluginContext, store: MissionStore) 
         wiki = ctx.provider_registry.get("wiki")
     except Exception:  # noqa: BLE001
         return "wiki provider unavailable"
-    if await wiki.get_page(SUCCESS_SLUG) is not None:
-        return "already present"
-    legacy = await wiki.get_page(_LEGACY_METRICS_SLUG)
-    body = _SUCCESS_STUB_BODY.format(statement=m["statement"])
-    if legacy and legacy.get("body") and "*Stub — " not in legacy["body"]:
-        body = legacy["body"].rstrip() + "\n\n" + body
-    await wiki.upsert_page(
-        SUCCESS_SLUG,
-        "Success Criteria",
-        body,
-        summary="what success looks like — to be ratified with the charter",
-        note="9.001B upgrade seed",
-    )
+    wk = await wikibind.wiki_kwargs(ctx, store._sf)  # noqa: SLF001
+    try:
+        if await wiki.get_page(SUCCESS_SLUG, **wk) is not None:
+            return "already present"
+        legacy = await wiki.get_page(_LEGACY_METRICS_SLUG, **wk)
+        body = _SUCCESS_STUB_BODY.format(statement=m["statement"])
+        if legacy and legacy.get("body") and "*Stub — " not in legacy["body"]:
+            body = legacy["body"].rstrip() + "\n\n" + body
+        await wiki.upsert_page(
+            SUCCESS_SLUG,
+            "Success Criteria",
+            body,
+            summary="what success looks like — to be ratified with the charter",
+            note="9.001B upgrade seed",
+            **wk,
+        )
+    except Exception as e:  # noqa: BLE001
+        # a downgraded wiki plugin on a multi-wiki DB can raise on duplicated
+        # slugs (slug-only get_page sees both namespaces) — scaffolding is
+        # best-effort, never a load failure
+        log.warning("success-criteria seed skipped: %s", e)
+        return f"skipped: {e}"
     return "seeded"
 
 
@@ -240,38 +256,60 @@ async def _write_through_identity(ctx: PluginContext, statement: str) -> str:
     return "ok"
 
 
-async def _seed_wiki_stubs(ctx: PluginContext, statement: str) -> str:
-    """Seed the mission hub page + starter stubs. Existing pages are left
-    alone (idempotent for re-set missions; hub is rewritten to the new
-    statement on purpose — it IS the mission page)."""
+async def _seed_wiki_stubs(
+    ctx: PluginContext, statement: str, wk: dict[str, Any] | None = None
+) -> str:
+    """Seed the mission hub page + starter stubs — into the mission's own
+    wiki when one was bound (wk={"wiki": slug}), the global namespace
+    otherwise. Existing pages are left alone (idempotent for re-set missions;
+    hub is rewritten to the new statement on purpose — it IS the mission
+    page)."""
+    wk = wk or {}
     try:
         wiki = ctx.provider_registry.get("wiki")
     except Exception:  # noqa: BLE001
         return "wiki provider unavailable — no stubs seeded"
     links = " ".join(f"[[{s}]]" for s in _STUB_SLUGS)
-    await wiki.upsert_page(
-        "mission",
-        "Mission",
-        f"> {statement}\n\nStart here: {links}\n",
-        summary=statement[:200],
-        note="mission_set",
-    )
-    seeded = ["mission"]
+    seeded: list[str] = []
+    skipped: list[str] = []
+    # per-slug guard: a downgraded wiki plugin on a multi-wiki DB raises on
+    # duplicated slugs (slug-only lookups see both namespaces) — stubs are
+    # best-effort scaffolding and must never abort mission adoption
+    try:
+        await wiki.upsert_page(
+            "mission",
+            "Mission",
+            f"> {statement}\n\nStart here: {links}\n",
+            summary=statement[:200],
+            note="mission_set",
+            **wk,
+        )
+        seeded.append("mission")
+    except Exception as e:  # noqa: BLE001
+        log.warning("mission hub seed skipped: %s", e)
+        skipped.append("mission")
     for slug in _STUB_SLUGS:
-        if await wiki.get_page(slug) is None:
-            body = (
-                _SUCCESS_STUB_BODY.format(statement=statement)
-                if slug == SUCCESS_SLUG
-                else f"*Stub — to be researched for the mission: {statement}*\n"
-            )
-            await wiki.upsert_page(
-                slug,
-                slug.replace("-", " ").title(),
-                body,
-                summary="stub",
-                note="mission_set stub",
-            )
-            seeded.append(slug)
+        try:
+            if await wiki.get_page(slug, **wk) is None:
+                body = (
+                    _SUCCESS_STUB_BODY.format(statement=statement)
+                    if slug == SUCCESS_SLUG
+                    else f"*Stub — to be researched for the mission: {statement}*\n"
+                )
+                await wiki.upsert_page(
+                    slug,
+                    slug.replace("-", " ").title(),
+                    body,
+                    summary="stub",
+                    note="mission_set stub",
+                    **wk,
+                )
+                seeded.append(slug)
+        except Exception as e:  # noqa: BLE001
+            log.warning("stub seed skipped for %s: %s", slug, e)
+            skipped.append(slug)
+    if skipped:
+        return f"seeded {seeded}, skipped {skipped} (wiki degraded)"
     return f"seeded {seeded}"
 
 
@@ -318,20 +356,45 @@ async def _sync_schedules(ctx: PluginContext) -> str:
         updater = ctx.tool_registry.get("trigger_update").handler
     except KeyError:
         updater = None  # older plugin-scheduler: create-only sync
+    # 0.9.2: provenance + race-safety, feature-detected off the installed
+    # plugin-scheduler's handler signatures. list-before-create stays even
+    # with unique_name available — a 0.3.0 plugin talking to an OLD service
+    # would otherwise create a duplicate on every on-load sync.
+    def _params(handler) -> set[str]:
+        try:
+            return set(inspect.signature(handler).parameters)
+        except (TypeError, ValueError):
+            return set()
+
+    creator_params = _params(creator)
+    updater_params = _params(updater) if updater is not None else set()
     listed = await _retry_tool(lister)
     if "error" in listed:
         return f"scheduler unreachable: {listed['error']}"
     existing = {t.get("name"): t for t in listed.get("triggers", [])}
     created, updated = [], []
     for spec in MISSION_SCHEDULES:
+        payload = {k: v for k, v in spec.items() if k != "purpose"}
+        if "unique_name" in creator_params:
+            payload["unique_name"] = True
+        if "purpose" in creator_params and spec.get("purpose"):
+            payload["purpose"] = spec["purpose"]
+        if "created_by" in creator_params:
+            payload["created_by"] = "plugin-curiosity"
         current = existing.get(spec["name"])
         if current is None:
-            result = await _retry_tool(creator, **spec)
+            result = await _retry_tool(creator, **payload)
             if "error" in result:
                 return f"trigger_create({spec['name']}) failed: {result['error']}"
             created.append(spec["name"])
             continue
         drift = _spec_drift(current, spec) if updater is not None else {}
+        if (
+            "purpose" in updater_params
+            and spec.get("purpose")
+            and current.get("purpose") != spec["purpose"]
+        ):
+            drift["purpose"] = spec["purpose"]
         if drift:
             result = await _retry_tool(updater, id=current["id"], **drift)
             if "error" in result:
@@ -348,14 +411,23 @@ def register_tools(ctx: PluginContext, store: MissionStore) -> None:
             mission = await store.set(statement, rung=rung, risk_ceiling=risk_ceiling)
         except ValueError as e:
             return {"error": str(e)}
+        # 0.9.2: bind the mission's own wiki BEFORE seeding, so the stubs land
+        # in it. None (old wiki plugin / bind failure) = global namespace,
+        # exactly the pre-0.9.2 behavior. A replaced mission's wiki is left
+        # untouched — its knowledge stays browsable from the history shelf.
+        slug = await wikibind.bind_wiki(ctx, mission["statement"], mission["id"])
+        if slug:
+            await wikibind.persist_wiki_id(store._sf, mission["id"], slug)  # noqa: SLF001
+            mission["wiki_id"] = slug
+        wk = {"wiki": slug} if slug else {}
         await telemetry.emit_ui_event(ctx, "changed", {"what": "mission"})
         return {
             "mission": mission,
             "identity_sync": await _write_through_identity(ctx, mission["statement"]),
-            "wiki_stubs": await _seed_wiki_stubs(ctx, mission["statement"]),
+            "wiki_stubs": await _seed_wiki_stubs(ctx, mission["statement"], wk),
             "schedules": await _sync_schedules(ctx),
             # fire-and-forget: the kickoff moment posts right after this turn
-            "kickoff": research.spawn_kickoff(ctx, mission["statement"]),
+            "kickoff": research.spawn_kickoff(ctx, mission["statement"], wiki_slug=slug),
         }
 
     async def _refine(
@@ -371,6 +443,17 @@ def register_tools(ctx: PluginContext, store: MissionStore) -> None:
         out: dict[str, Any] = {"mission": mission}
         if statement is not None:
             out["identity_sync"] = await _write_through_identity(ctx, mission["statement"])
+            # keep the bound wiki's shelf label honest on a reworded mission
+            if mission.get("wiki_id"):
+                try:
+                    wiki = ctx.provider_registry.get("wiki")
+                    if callable(getattr(wiki, "update_wiki", None)):
+                        await wiki.update_wiki(
+                            mission["wiki_id"],
+                            description=mission["statement"][:200],
+                        )
+                except Exception:  # noqa: BLE001
+                    log.debug("wiki description refresh failed", exc_info=True)
         out["schedules"] = await _sync_schedules(ctx)
         return out
 
@@ -500,9 +583,21 @@ def prompt_fragment(mission: dict[str, Any] | None, phase: str | None = None) ->
             "update_self(field='mission', ...) right away, then continue the "
             "rest of setup. " + rails
         )
+    # 0.9.2: a bound mission wiki is stated concretely — the generic rule
+    # (prompts.WIKI_BINDING) rides in surfaces that can't know the slug.
+    wiki_line = ""
+    if mission.get("wiki_id"):
+        wiki_line = (
+            f"Your mission wiki is '{mission['wiki_id']}' — pass "
+            f"wiki='{mission['wiki_id']}' to EVERY wiki_* call (read, write, "
+            "patch, ask, toc, search); pages written elsewhere are invisible "
+            "to your mission surfaces. "
+        )
     base = (
         f"Curiosity: your mission — {mission['statement']} (autonomy rung "
         f"{mission['autonomy_rung']}/4, risk ceiling {mission['risk_ceiling']}). "
+        + wiki_line
+        + prompts.OWNER_WORDS + " "
         "You OWN this mission and you are relentless about it: you keep a goal "
         "ledger ([[mission-goals]] — goal_set / goal_update / goal_list), you "
         "advance a goal every day, and you drive toward CHANGE, not just "

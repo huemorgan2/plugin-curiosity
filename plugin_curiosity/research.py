@@ -36,6 +36,7 @@ from .prompts import (
     MATERIALITY_RULE,
     NEXT_TOUCH_RULE,
     NO_BLAME,
+    OWNER_WORDS,
     PHASE_CHECK,
     PHASE_ONE_DOCTRINE,
     RATIFICATION_FORCING,
@@ -43,6 +44,7 @@ from .prompts import (
     SUCCESS_TABLE_SHAPE,
     TALENTED_HIRE_LAW,
     VALUE_QUESTION_CADENCE,
+    WIKI_BINDING,
 )
 
 log = logging.getLogger("plugin-curiosity")
@@ -114,7 +116,9 @@ You are in SETUP phase, stage S0 — the setup arc starts NOW, in this turn
 (S0→S2, ~18-24 tool calls; depth comes later, from your own heartbeat and
 the daily schedule). Everything you produce in this turn is a LIVING DRAFT —
 say so, and improve it as you learn.
-"""
+{wiki_note}"""
+    + OWNER_WORDS
+    + "\n"
     + PHASE_ONE_DOCTRINE
     + "\n"
     + FDE_DOCTRINE
@@ -229,6 +233,7 @@ DAILY_RESEARCH_TARGET = (
     "credential form, connector setup) with NO loop tracking it gets "
     "loop_open(kind='ask', unlock=..., value_ref=...) RIGHT NOW. "
     + LOOP_DISCIPLINE + "\n"
+    + WIKI_BINDING + " " + OWNER_WORDS + "\n"
     "SETUP BRANCH (agent_phase='setup'): you are QUALIFYING yourself for "
     "this job — every action today closes a named gap on your ladder: which "
     "tools, access, people, or knowledge am I missing? do I know what "
@@ -320,7 +325,9 @@ async def run_install_kickoff(ctx: PluginContext) -> bool:
     return True
 
 
-async def run_kickoff(ctx: PluginContext, statement: str) -> None:
+async def run_kickoff(
+    ctx: PluginContext, statement: str, wiki_slug: str | None = None
+) -> None:
     """Post the kickoff moment. Runs as a fire-and-forget task from
     mission_set; the short delay lets the mission_set turn finish streaming
     before the kickoff reaction turn starts competing for the loop.
@@ -330,12 +337,19 @@ async def run_kickoff(ctx: PluginContext, statement: str) -> None:
     failure is detected from the result, not an exception. Retrying re-posts
     the moment message too — acceptable: a failed turn means the first moment
     was never reacted to, and a lost kickoff strands the mission at S0."""
+    wiki_note = ""
+    if wiki_slug:
+        wiki_note = (
+            f"\nYour mission wiki is '{wiki_slug}' — pass wiki='{wiki_slug}' "
+            "to EVERY wiki_* call in this turn; pages written elsewhere are "
+            "invisible to your mission surfaces.\n"
+        )
     await asyncio.sleep(KICKOFF_DELAY_S)
     for attempt in range(1, KICKOFF_ATTEMPTS + 1):
         try:
             result = await ctx.send_muted_message(
                 KICKOFF_TITLE,
-                _KICKOFF_CONTENT.format(statement=statement),
+                _KICKOFF_CONTENT.format(statement=statement, wiki_note=wiki_note),
                 channel="moment",
                 source="curiosity",
                 tools=KICKOFF_TOOLS,
@@ -378,6 +392,7 @@ HEARTBEAT_NUDGE_CONTENT = (
     "your self-authored drive is missing (never created, or deleted behind "
     "your back). Recreate it NOW with trigger_create.\n"
     + HEARTBEAT_CONTRACT
+    + "\n" + WIKI_BINDING
     + "\nCheck current state first (mission_get, scope_list) so the prompt "
     "you author names your REAL current gaps. Then reply with one short "
     "line telling the owner the heartbeat is in place and the cadence you "
@@ -458,9 +473,13 @@ async def run_heartbeat_nudge(ctx: PluginContext) -> bool:
     return True
 
 
-def spawn_kickoff(ctx: PluginContext, statement: str) -> str:
+def spawn_kickoff(
+    ctx: PluginContext, statement: str, wiki_slug: str | None = None
+) -> str:
     try:
-        asyncio.get_running_loop().create_task(run_kickoff(ctx, statement))  # noqa: RUF006
+        asyncio.get_running_loop().create_task(  # noqa: RUF006
+            run_kickoff(ctx, statement, wiki_slug=wiki_slug)
+        )
         return "started"
     except RuntimeError:
         return "no event loop — kickoff skipped"

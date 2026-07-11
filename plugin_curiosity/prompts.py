@@ -111,6 +111,29 @@ NO_BLAME = (
     "show the discovery, the evidence, and the improved plan, and move."
 )
 
+# 0.9.2: owner-visible text is plain words — S-codes and tool names are
+# internal shorthand and leak badly (9.002 prod e2e caught "S1"/"S2" in goal
+# titles and heartbeat notes rendering verbatim in the owner's pane).
+OWNER_WORDS = (
+    "OWNER WORDS: everything the owner reads — goal statements, loop "
+    "statements, heartbeat notes and morale, share_thought text, wiki prose "
+    "and summaries — uses plain words only. Never write stage codes (S0..S5) "
+    "or tool names there; say 'posted, awaiting your ratification', not "
+    "'S2'. Codes are for tool arguments (stage_set) and your own reasoning "
+    "only."
+)
+
+# 0.9.2: the mission-bound wiki. mission_get returns wiki_id when the mission
+# has its own wiki; every wiki_* call must be scoped to it or the write lands
+# in the global namespace where no curiosity surface will ever find it.
+WIKI_BINDING = (
+    "YOUR MISSION WIKI: mission_get returns wiki_id — when it is set, pass "
+    "wiki='<that id>' to EVERY wiki_* call (read, write, patch, ask, toc, "
+    "search). Pages written without it land in a different wiki and are "
+    "invisible to your mission surfaces. If wiki_id is null, omit the "
+    "parameter."
+)
+
 # The setup-arc ladder, defined in exactly ONE place (9.001E — S3 was a ghost
 # stage that existed only in the enum; no stage may exist only in an enum).
 SETUP_STAGE_DEFS = (
@@ -140,7 +163,10 @@ HEARTBEAT_CONTRACT = (
     "Before any trigger_create, call trigger_list — if "
     "'" + HEARTBEAT_NAME + "' is already there, do NOT create another "
     "(trigger_update it if it needs changing); duplicates you merely "
-    "notice are reaped automatically, oldest kept. "
+    "notice are reaped automatically, oldest kept. When trigger_create "
+    "offers a unique_name parameter, ALWAYS pass unique_name=true and "
+    "purpose='my setup drive — closes qualification gaps' — the scheduler "
+    "then guarantees exactly one exists even if two turns race. "
     "Author its agent_prompt target yourself, but it MUST contain: "
     "(a) the two phase-one questions, asked against CURRENT state "
     "(mission_get, scope_list, goal_list, loop_list) — NOT a check that "

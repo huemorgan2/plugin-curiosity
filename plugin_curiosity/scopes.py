@@ -44,6 +44,17 @@ SCOPE_KINDS = (
 )
 SCOPE_STATUSES = ("missing", "in_progress", "competent")
 SETUP_STAGES = ("S0", "S1", "S2", "S3", "S4", "S5")
+# Owner-facing words for the stages (0.9.2 — ux_guidelines §4: S-codes are
+# internal shorthand and never render on an owner surface; lives here, not in
+# overview.py, so the charter mirror can use it without a circular import).
+STAGE_LABELS = {
+    "S0": ("understood", "mission restated sharper, first observations recorded"),
+    "S1": ("inventoried", "scopes chartered, reachable tools verified, first value delivered"),
+    "S2": ("posted", "job description, charter, success criteria and dated goals posted to the owner"),
+    "S3": ("ratified", "the owner ratified the job description, charter and success criteria"),
+    "S4": ("validated", "one real workflow run validated end-to-end"),
+    "S5": ("wired", "live feedback signals flowing per scope"),
+}
 AGENT_PHASES = ("setup", "work")
 # phase 10 materiality rule: a within-ability learning is a "refine"; a
 # learning that changes the role's SHAPE is a "role_pivot" — it bumps the
@@ -273,8 +284,9 @@ def render_charter_page(
 ) -> str:
     """The [[role-charter]] page body: stage marker → role statement → scopes
     grouped by kind → append-only Plan changes."""
+    stage_word = STAGE_LABELS.get(state["setup_stage"], (state["setup_stage"], ""))[0]
     lines = [
-        f"**Stage: {state['setup_stage']} — phase: {state['agent_phase']}**",
+        f"**Where I am: {state['agent_phase']} phase — {stage_word}**",
         "",
         f"Role: {state['statement']}",
         "",
@@ -315,6 +327,8 @@ def render_charter_page(
 
 
 async def _mirror_to_wiki(ctx: PluginContext, store: ScopeStore) -> str:
+    from . import wikibind
+
     try:
         wiki = ctx.provider_registry.get("wiki")
     except Exception:  # noqa: BLE001
@@ -323,17 +337,20 @@ async def _mirror_to_wiki(ctx: PluginContext, store: ScopeStore) -> str:
         state = await store.state()
         if state is None:
             return "no active mission — charter page not mirrored"
+        wk = await wikibind.wiki_kwargs(ctx, store._sf)  # noqa: SLF001
         scopes = await store.list()
         competent = sum(1 for sc in scopes if sc["status"] == "competent")
+        stage_word = STAGE_LABELS.get(state["setup_stage"], (state["setup_stage"], ""))[0]
         await wiki.upsert_page(
             CHARTER_SLUG,
             CHARTER_TITLE,
             render_charter_page(state, scopes, await store.plan_changes()),
             summary=(
-                f"{state['agent_phase']} phase, stage {state['setup_stage']} — "
+                f"{state['agent_phase']} phase, {stage_word} — "
                 f"{competent}/{len(scopes)} scopes competent"
             ),
             note="role charter write-through",
+            **wk,
         )
         return "ok"
     except Exception as e:  # noqa: BLE001
@@ -345,12 +362,15 @@ async def ensure_charter_mirror(ctx: PluginContext, store: ScopeStore) -> str:
     """Upgrade path (on-load): a pre-9A mission never had a [[role-charter]]
     page — seed it once when a mission exists and the page is absent, so the
     upgraded agent's charter surface appears without a mission_set."""
+    from . import wikibind
+
     state = await store.state()
     if state is None:
         return "no mission"
     try:
         wiki = ctx.provider_registry.get("wiki")
-        if await wiki.get_page(CHARTER_SLUG) is not None:
+        wk = await wikibind.wiki_kwargs(ctx, store._sf)  # noqa: SLF001
+        if await wiki.get_page(CHARTER_SLUG, **wk) is not None:
             return "already present"
     except Exception:  # noqa: BLE001
         return "wiki provider unavailable"

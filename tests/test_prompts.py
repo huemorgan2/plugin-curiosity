@@ -126,8 +126,13 @@ def test_prompt_budget_sanity():
     # raised the setup surfaces again — the FDE doctrine, JD shape, ability
     # contract, question cadence, materiality rule and no-blame frame ride
     # the kickoff and setup fragment (the job model IS the setup product).
-    assert len(DAILY_RESEARCH_TARGET) < 4600
-    assert len(WEEKLY_REVIEW_TARGET) < 7400
-    assert len(_KICKOFF_CONTENT.format(statement="x")) < 12000
-    assert len(prompt_fragment(MISSION, "setup")) < 9000
-    assert len(prompt_fragment(MISSION, "work")) < 2400
+    # 0.9.2 raised daily/weekly/kickoff/setup: OWNER_WORDS (plain-words rule)
+    # and WIKI_BINDING (mission-wiki scoping) ride every recurring surface —
+    # both are correctness contracts, not verbosity.
+    assert len(DAILY_RESEARCH_TARGET) < 5100
+    assert len(WEEKLY_REVIEW_TARGET) < 7900
+    assert len(_KICKOFF_CONTENT.format(statement="x", wiki_note="")) < 12500
+    assert len(prompt_fragment(MISSION, "setup")) < 9400
+    wiki_bound = dict(MISSION, wiki_id="grow-signups-abc123")
+    assert len(prompt_fragment(wiki_bound, "setup")) < 9600
+    assert len(prompt_fragment(wiki_bound, "work")) < 2400

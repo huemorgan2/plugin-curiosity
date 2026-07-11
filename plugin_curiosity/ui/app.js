@@ -185,10 +185,19 @@ function renderJd(o) {
     blocks.innerHTML = '';
     return;
   }
-  const rev = jd.latest_pivot
-    ? ` · revised ${esc(jd.latest_pivot.date)} — the job changed`
-    : '';
-  stamp.innerHTML = `Living draft <b>v${esc(jd.role_version)}</b>${rev} · I keep this current as I learn.`;
+  // real edit history (wiki revisions) beats the coarse pivot stamp; count
+  // and date only — revision notes are Luna's internal bookkeeping
+  if (jd.revisions && jd.revisions.count) {
+    const when = String(jd.revisions.latest || '').slice(0, 10);
+    stamp.innerHTML = `Living draft <b>v${esc(jd.role_version)}</b> · ` +
+      `${esc(jd.revisions.count)} revision${jd.revisions.count === 1 ? '' : 's'}` +
+      (when ? `, last ${esc(when)}` : '') + ' · I keep this current as I learn.';
+  } else {
+    const rev = jd.latest_pivot
+      ? ` · revised ${esc(jd.latest_pivot.date)} — the job changed`
+      : '';
+    stamp.innerHTML = `Living draft <b>v${esc(jd.role_version)}</b>${rev} · I keep this current as I learn.`;
+  }
 
   if (!jd.shape_ok) {
     head.textContent = 'My job description, as I wrote it';
