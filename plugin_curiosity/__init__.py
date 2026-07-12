@@ -354,7 +354,7 @@ def schedule_on_load_work(
 class CuriosityPlugin(LunaPlugin):
     manifest = PluginManifest(
         name="plugin-curiosity",
-        version="0.9.5",
+        version="0.9.6",
         description=(
             "Mission-driven curiosity: research, wiki-building, nightly dreams, "
             "self-set goals, weekly mission reviews, proactive reflections, and "
@@ -449,6 +449,18 @@ class CuriosityPlugin(LunaPlugin):
         """Register the plugin's live surface — tools + prompt hook. Runs
         exactly once, and only with the dependency gate open."""
         self._activated = True
+        # 0.9.6: sweep our own stale registrations first. A hot upgrade/install
+        # whose teardown missed (or raced) leaves the previous instance's tools
+        # in the registry under this same plugin name — the collision guard
+        # would then kill THIS on_load and the rollback's alike, bricking every
+        # further update until a restart. Same-name sweep is always safe:
+        # whatever is there under "plugin-curiosity" is a dead instance's.
+        unreg = getattr(ctx.tool_registry, "unregister_plugin", None)
+        if callable(unreg):
+            try:
+                unreg("plugin-curiosity")
+            except Exception:  # noqa: BLE001
+                log.warning("stale-tool sweep failed", exc_info=True)
         register_tools(ctx, self._store)
         goals.register_tools(ctx, self._goals)
         scopes.register_tools(ctx, self._scopes)
