@@ -94,18 +94,6 @@ function shortDate(iso) {
   return `${MONTHS[Number(m) - 1]} ${Number(day)}`;
 }
 
-function ago(iso) {
-  if (!iso) return '';
-  const ms = Date.now() - new Date(iso).getTime();
-  if (!isFinite(ms) || ms < 0) return '';
-  const m = Math.floor(ms / 60000);
-  if (m < 1) return 'just now';
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 48) return `${h}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
-}
-
 // ---- render -------------------------------------------------------------------
 
 function render() {
@@ -141,26 +129,19 @@ function renderBlocked(b) {
   $('blocked-cta').href = `${BASE}/#marketplace`;
 }
 
-// 1 · ACTIVE MISSION — statement, plain-word phase, morale
+// 1 · ACTIVE MISSION — statement, current state in plain words
+// (the "feeling" quote moved out of the hero; morale detail lives on the
+// Operational dashboard heartbeat panel where it has context)
 function renderHero(o) {
   const phase = o.state ? o.state.agent_phase : 'setup';
   $('mission-statement').textContent = o.mission.statement;
-  $('mission-phase').textContent = phase === 'work'
-    ? 'Working the mission — the job is running.'
-    : 'Onboarding — I’m setting myself up to do this job well.';
+  $('mission-phase').innerHTML = '<span class="state-label">Current state</span>' + esc(phase === 'work'
+    ? 'On the job — working the mission.'
+    : 'Working on making myself good enough for this job.');
   const wins = (o.value_log || []).length;
   const open = ((o.loops || {}).open || []).length;
   $('mission-meta').textContent =
     `since ${dateOf(o.mission.created_at)} · ${wins} win${wins === 1 ? '' : 's'} delivered · ${open} open thread${open === 1 ? '' : 's'}`;
-
-  const hb = o.heartbeats && o.heartbeats.latest;
-  const moraleEl = $('morale');
-  if (hb && hb.morale) {
-    moraleEl.className = `hero-morale ${o.sentiment || 'neutral'}`;
-    moraleEl.innerHTML = `<span class="band-dot"></span>feeling <span class="word">“${esc(hb.morale)}”</span><span class="muted">— her own words, ${ago(hb.created_at)}</span>`;
-  } else {
-    moraleEl.classList.add('hidden');
-  }
 }
 
 // Needs strip — asks only; pivots get their own card below
@@ -281,20 +262,6 @@ function renderSetup(o) {
 }
 
 // 4 · GOALS — headline, timeline dots, next 2–3 as two-liners
-const STOPWORDS = new Set(['the', 'a', 'an', 'to', 'and', 'of', 'for', 'in', 'on', 'at', 'by', 'with', 'my', 'our', 'first']);
-
-function bubbleWord(statement) {
-  const words = String(statement || '').replace(/[^\w\s%€$-]/g, '').split(/\s+/);
-  const w = words.find((x) => x && !STOPWORDS.has(x.toLowerCase())) || words[0] || '';
-  return w.length > 12 ? w.slice(0, 11) + '…' : w;
-}
-
-function bubbleNumber(g) {
-  const hay = `${g.statement || ''} ${g.expected_result || ''}`;
-  const m = hay.match(/[€$]\s?\d[\d,.]*|\d[\d,.]*\s?%|\b\d[\d,.]*\b/);
-  if (m) return m[0].replace(/\s/g, '');
-  return shortDate(g.target_date);
-}
 
 function renderGoals(o) {
   const goals = (o.goals || []).filter((g) => g.target_date).slice()
@@ -309,7 +276,14 @@ function renderGoals(o) {
     ? `Next: ${next.statement} — ${shortDate(next.target_date)}`
     : 'All dated goals are settled';
 
-  // timeline: dot per dated goal, bubbles on the near ones only
+  // 0.9.9: the timeline and the list share one identity — every upcoming
+  // goal has ONE number, shown inside its timeline dot AND as the list
+  // marker, in the same status color. Hovering either side highlights both.
+  const nums = new Map();
+  upcoming.slice(0, 3).forEach((g, i) => nums.set(g, i + 1)); // only listed goals get numbers
+
+  // timeline: a numbered dot per upcoming goal (settled goals stay plain
+  // dots); the goal card appears on hover, floating above everything.
   const tl = $('goal-timeline');
   if (goals.length >= 2) {
     const t0 = new Date(goals[0].target_date).getTime();
@@ -318,29 +292,52 @@ function renderGoals(o) {
     const nextIdx = next ? goals.indexOf(next) : -1;
     tl.innerHTML = '<div class="rail"></div>' + goals.map((g, i) => {
       const x = 6 + 88 * ((new Date(g.target_date).getTime() - t0) / span); // 6%..94%
-      const far = nextIdx >= 0 && i > nextIdx + 2; // bubbles: past + next 3, dots beyond
-      const cls = [g.status, i === nextIdx ? 'next' : '', far ? 'far' : ''].filter(Boolean).join(' ');
-      return `<div class="tl-goal ${cls}" style="left:${x}%">` +
-        `<span class="bubble"><b>${esc(bubbleWord(g.statement))}</b>${esc(bubbleNumber(g))}</span>` +
-        `<span class="tdot"></span><span class="tdate">${esc(shortDate(g.target_date))}</span></div>`;
+      const n = nums.get(g) || 0;
+      const edge = x < 14 ? 'edge-l' : x > 86 ? 'edge-r' : ''; // keep hover cards inside the panel
+      const cls = [g.status, i === nextIdx ? 'next' : '', edge].filter(Boolean).join(' ');
+      return `<div class="tl-goal ${cls}"${n ? ` data-n="${n}"` : ''} style="left:${x}%">` +
+        `<span class="bubble"><b>${esc(g.statement)}</b>${esc(shortDate(g.target_date))}</span>` +
+        `<span class="tdot${n ? ' num' : ''}">${n || ''}</span>` +
+        `<span class="tdate">${esc(shortDate(g.target_date))}</span></div>`;
     }).join('');
     tl.classList.remove('hidden');
+    // clustered dates collide — walk left to right and clip any label that
+    // would overlap its neighbor (it reappears on hover of its dot)
+    let lastRight = -Infinity;
+    tl.querySelectorAll('.tl-goal .tdate').forEach((d) => {
+      const r = d.getBoundingClientRect();
+      if (!r.width) return;
+      if (r.left < lastRight + 8) d.classList.add('clip');
+      else lastRight = r.right;
+    });
   } else {
     tl.innerHTML = '';
   }
 
-  // next 2–3, two lines each: required result, then readiness
+  // next 2–3, two lines each: required result, then readiness — numbered and
+  // colored to mirror their timeline dots
   const READY = { green: '🟢', amber: '🟠', red: '🔴' };
   $('goal-next').innerHTML = upcoming.slice(0, 3).map((g, i) => {
     const result = g.expected_result || g.statement;
     const ready = g.readiness
       ? `<div class="g-ready ${esc(g.readiness)}">${READY[g.readiness] || ''} ${esc(g.readiness_note || g.readiness)}</div>`
       : '';
-    return `<li><span class="gn">${i + 1}</span><div>` +
+    const tone = i === 0 ? 'next' : (g.status === 'stalled' ? 'stalled' : 'active');
+    return `<li class="g-${tone}" data-n="${i + 1}"><span class="gn">${i + 1}</span><div>` +
       `<div class="g-result">${esc(result)}<span class="due">${esc(shortDate(g.target_date))}</span></div>` +
       ready + `</div></li>`;
   }).join('');
 }
+
+// hovering a numbered dot lights up its list row, and vice versa
+document.addEventListener('mouseover', (e) => {
+  const hit = e.target.closest('.tl-goal[data-n], .goal-next li[data-n]');
+  document.querySelectorAll('.linked').forEach((el) => el.classList.remove('linked'));
+  if (!hit) return;
+  document.querySelectorAll(
+    `.tl-goal[data-n="${hit.dataset.n}"], .goal-next li[data-n="${hit.dataset.n}"]`
+  ).forEach((el) => el.classList.add('linked'));
+});
 
 // ---- tooltips: only behind the (i) affordances ------------------------------
 

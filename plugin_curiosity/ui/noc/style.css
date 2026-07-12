@@ -78,10 +78,9 @@ body {
   border-radius: var(--radius);
   padding: 20px 24px 18px;
   background:
-    radial-gradient(120% 160% at 0% 0%, rgba(139, 92, 246, 0.5), transparent 55%),
-    radial-gradient(120% 160% at 100% 100%, rgba(94, 174, 252, 0.26), transparent 55%),
-    linear-gradient(135deg, #191331, #10182b 60%, #0d1220);
-  border: 1px solid rgba(139, 92, 246, 0.35);
+    radial-gradient(140% 190% at 0% 0%, rgba(139, 92, 246, 0.14), transparent 65%),
+    linear-gradient(160deg, #110f1e, #0e1220 55%, #0b0e17);
+  border: 1px solid rgba(139, 92, 246, 0.2);
   margin-bottom: 14px;
 }
 .hero-label {

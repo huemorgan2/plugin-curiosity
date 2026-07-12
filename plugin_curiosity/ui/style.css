@@ -66,36 +66,29 @@ h2 { font-size: 21px; font-weight: 650; line-height: 1.3; }
 .muted { color: var(--faint); font-size: 12.5px; }
 
 /* ---- 1 · hero: THE gradient ---- */
+/* 0.9.9: darker + quieter — one soft violet wash over near-panel darks, so
+   the hero sits with the flat panels below instead of shouting over them */
 .hero {
   border-radius: var(--radius);
   padding: 28px 30px 24px;
   background:
-    radial-gradient(120% 160% at 0% 0%, rgba(139, 92, 246, 0.55), transparent 55%),
-    radial-gradient(120% 160% at 100% 100%, rgba(94, 174, 252, 0.28), transparent 55%),
-    linear-gradient(135deg, #191331, #10182b 60%, #0d1220);
-  border: 1px solid rgba(139, 92, 246, 0.35);
+    radial-gradient(140% 190% at 0% 0%, rgba(139, 92, 246, 0.14), transparent 65%),
+    linear-gradient(160deg, #110f1e, #0e1220 55%, #0b0e17);
+  border: 1px solid rgba(139, 92, 246, 0.2);
 }
 .hero-label {
   text-transform: uppercase; letter-spacing: 0.16em; font-size: 11px;
   color: var(--violet-soft); font-weight: 600; margin-bottom: 8px;
 }
 .hero-statement { font-size: 23px; font-weight: 650; line-height: 1.35; max-width: 62ch; }
-.hero-support { margin-top: 10px; font-size: 14px; color: var(--text); }
-.hero-meta { margin-top: 6px; font-size: 12.5px; color: var(--dim); }
-.hero-morale {
-  margin-top: 14px; display: inline-flex; align-items: center; gap: 8px;
-  font-size: 13px; border-radius: 999px; padding: 5px 12px;
-  border: 1px solid var(--line); background: rgba(11,14,20,0.5);
+.hero-support { margin-top: 12px; font-size: 14px; color: var(--text); }
+.hero-support .state-label {
+  text-transform: uppercase; letter-spacing: 0.1em; font-size: 10.5px;
+  color: var(--dim); font-weight: 600; margin-right: 9px;
+  border: 1px solid var(--line); border-radius: 5px; padding: 2px 7px;
+  position: relative; top: -1px;
 }
-.hero-morale .word { font-style: italic; font-weight: 600; }
-.hero-morale.positive { border-color: var(--ok); }
-.hero-morale.neutral  { border-color: var(--line); }
-.hero-morale.strained { border-color: var(--amber); }
-.hero-morale.blocked  { border-color: var(--red); }
-.hero-morale .band-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
-.hero-morale.positive .band-dot { background: var(--ok); }
-.hero-morale.strained .band-dot { background: var(--amber); }
-.hero-morale.blocked  .band-dot { background: var(--red); }
+.hero-meta { margin-top: 8px; font-size: 12.5px; color: var(--dim); }
 
 /* ---- needs strip ---- */
 .strip {
@@ -189,27 +182,57 @@ h2 { font-size: 21px; font-weight: 650; line-height: 1.3; }
 .subtask .note { color: var(--faint); font-size: 12px; }
 
 /* ---- 4 · goals ---- */
-.timeline { margin: 22px 6px 6px; position: relative; height: 74px; }
-.timeline .rail { position: absolute; left: 0; right: 0; top: 48px; height: 2px; background: var(--line); border-radius: 1px; }
-.tl-goal { position: absolute; top: 0; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; width: 90px; }
+/* 0.9.9: nothing sits above the rail by default — goal cards float on
+   hover, clustered dates clip and reappear on hover, and dots carry the
+   list's numbers in the list's colors so both views read as one. */
+.timeline { margin: 12px 6px 6px; position: relative; height: 48px; }
+.timeline .rail { position: absolute; left: 0; right: 0; top: 8px; height: 2px; background: var(--line); border-radius: 1px; }
+.tl-goal { position: absolute; top: 0; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; }
+.tl-goal:hover { z-index: 10; }
 .tl-goal .bubble {
-  font-size: 11px; line-height: 1.35; text-align: center; color: var(--dim);
-  border: 1px solid var(--line); border-radius: 7px; padding: 3px 7px;
-  background: var(--panel-2); white-space: nowrap; max-width: 88px; overflow: hidden; text-overflow: ellipsis;
+  visibility: hidden; position: absolute; bottom: calc(100% + 8px); left: 50%;
+  transform: translateX(-50%); z-index: 20; pointer-events: none;
+  font-size: 11px; line-height: 1.4; text-align: center; color: var(--faint);
+  border: 1px solid var(--line); border-radius: 7px; padding: 6px 10px;
+  background: #1c2233; white-space: normal; width: max-content; max-width: 210px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
 }
-.tl-goal .bubble b { display: block; color: var(--text); font-size: 11.5px; }
-.tl-goal .tdot { width: 10px; height: 10px; border-radius: 50%; margin-top: 9px; background: var(--faint); border: 2px solid var(--bg); }
+.tl-goal:hover .bubble { visibility: visible; }
+.tl-goal.edge-l .bubble { left: 0; transform: none; text-align: left; }
+.tl-goal.edge-r .bubble { left: auto; right: 0; transform: none; text-align: right; }
+.tl-goal .bubble b { display: block; color: var(--text); font-size: 11.5px; margin-bottom: 2px; }
+.tl-goal .tdot {
+  width: 10px; height: 10px; border-radius: 50%; margin-top: 3px;
+  background: var(--faint); border: 2px solid var(--bg);
+  display: flex; align-items: center; justify-content: center;
+}
+.tl-goal .tdot.num {
+  width: 18px; height: 18px; margin-top: -1px; border: 0;
+  font-size: 10px; font-weight: 700; color: var(--bg);
+}
 .tl-goal.done .tdot { background: var(--ok); }
 .tl-goal.dropped .tdot, .tl-goal.missed .tdot { background: var(--red); }
 .tl-goal.stalled .tdot { background: var(--amber); }
-.tl-goal.next .tdot { background: var(--violet); box-shadow: 0 0 0 3px rgba(139,92,246,0.25); }
-.tl-goal .tdate { font-size: 10.5px; color: var(--faint); margin-top: 6px; font-variant-numeric: tabular-nums; }
-.tl-goal.far .bubble { visibility: hidden; }
+.tl-goal.next .tdot { background: var(--violet); color: #fff; box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.25); }
+.tl-goal:hover .tdot, .tl-goal.linked .tdot { box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.35); }
+.tl-goal .tdate {
+  font-size: 10.5px; color: var(--faint); margin-top: 6px;
+  white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+.tl-goal .tdate.clip { visibility: hidden; }
+.tl-goal:hover .tdate, .tl-goal.linked .tdate { visibility: visible; color: var(--text); }
 
 .goal-next { list-style: none; margin-top: 14px; }
-.goal-next li { display: flex; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+.goal-next li { display: flex; gap: 12px; padding: 10px 8px; border-top: 1px solid var(--line); border-radius: 8px; }
 .goal-next li:first-child { border-top: 0; }
-.goal-next .gn { flex: none; width: 22px; font-weight: 700; color: var(--faint); font-size: 13px; }
+.goal-next li.linked { background: rgba(139, 92, 246, 0.07); }
+.goal-next .gn {
+  flex: none; width: 18px; height: 18px; border-radius: 50%; margin-top: 1px;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 10px; color: var(--bg); background: var(--faint);
+}
+.goal-next li.g-next .gn { background: var(--violet); color: #fff; box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.25); }
+.goal-next li.g-stalled .gn { background: var(--amber); }
 .goal-next .g-result { font-size: 13.5px; line-height: 1.45; }
 .goal-next .g-result .due { color: var(--faint); font-size: 12px; margin-left: 8px; }
 .goal-next .g-ready { font-size: 12.5px; margin-top: 3px; line-height: 1.45; }
