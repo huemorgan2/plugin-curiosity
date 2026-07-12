@@ -373,7 +373,7 @@ if "prompt_overrides" in getattr(PluginManifest, "model_fields", {}):
 class CuriosityPlugin(LunaPlugin):
     manifest = PluginManifest(
         name="plugin-curiosity",
-        version="0.9.9",
+        version="0.9.10",
         description=(
             "Mission-driven curiosity: research, wiki-building, nightly dreams, "
             "self-set goals, weekly mission reviews, proactive reflections, and "

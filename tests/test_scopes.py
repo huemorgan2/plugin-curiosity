@@ -229,6 +229,8 @@ async def test_additive_migration_backfills_old_db():
             "curiosity_missions.stage_entered_at",
             "curiosity_missions.role_version",
             "curiosity_missions.wiki_id",
+            "curiosity_missions.current_state",
+            "curiosity_missions.current_state_at",
         ]
         assert await conn.run_sync(apply_additive_migrations) == []  # idempotent
 

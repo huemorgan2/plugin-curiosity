@@ -123,6 +123,9 @@ class ScopeStore:
                 # SQLite round-trips DateTime(timezone=True) as naive UTC
                 stage_since = stage_since.replace(tzinfo=UTC)
             age_days = max(0, (_utcnow() - stage_since).days) if stage_since else 0
+            cs_at = getattr(m, "current_state_at", None)
+            if cs_at is not None and cs_at.tzinfo is None:
+                cs_at = cs_at.replace(tzinfo=UTC)
             return {
                 "mission_id": str(m.id),
                 "statement": m.statement,
@@ -132,6 +135,11 @@ class ScopeStore:
                 "role_version": getattr(m, "role_version", 1) or 1,
                 "phase_entered_at": (
                     m.phase_entered_at.isoformat() if m.phase_entered_at else None
+                ),
+                "current_state": getattr(m, "current_state", "") or "",
+                # server-computed (agents have no clock): how stale the line is
+                "current_state_age_days": (
+                    max(0, (_utcnow() - cs_at).days) if cs_at else None
                 ),
             }
 
@@ -218,6 +226,24 @@ class ScopeStore:
             m.stage_entered_at = _utcnow()
             await s.commit()
         return {"setup_stage": stage}
+
+    async def current_state_set(self, text: str) -> dict[str, Any]:
+        text = " ".join((text or "").split())
+        if not text:
+            raise ValueError("current state must be non-empty — one plain sentence")
+        if len(text) > 200:
+            raise ValueError(
+                "current state is one line the owner reads at a glance — "
+                f"say it in under 200 characters (got {len(text)})"
+            )
+        async with self._sf() as s:
+            m = await self._active(s)
+            if m is None:
+                raise ValueError("no active mission — set a mission first")
+            m.current_state = text
+            m.current_state_at = _utcnow()
+            await s.commit()
+        return {"current_state": text}
 
     async def phase_set(self, to: str) -> dict[str, Any]:
         if to not in AGENT_PHASES:
@@ -428,6 +454,18 @@ def register_tools(ctx: PluginContext, store: ScopeStore) -> None:
             return {"error": str(e)}
         await telemetry.emit_ui_event(ctx, "changed", {"what": "stage", "stage": stage})
         result["wiki_mirror"] = await _mirror_to_wiki(ctx, store)
+        result["reminder"] = (
+            "if what you're doing changed, refresh your one-line status with "
+            "current_state_set"
+        )
+        return result
+
+    async def _current_state(text: str) -> dict[str, Any]:
+        try:
+            result = await store.current_state_set(text)
+        except ValueError as e:
+            return {"error": str(e)}
+        await telemetry.emit_ui_event(ctx, "changed", {"what": "current_state"})
         return result
 
     async def _note(entry: str, kind: str = "refine") -> dict[str, Any]:
@@ -486,6 +524,10 @@ def register_tools(ctx: PluginContext, store: ScopeStore) -> None:
             )
         await telemetry.emit_ui_event(ctx, "changed", {"what": "phase", "phase": to})
         result["wiki_mirror"] = await _mirror_to_wiki(ctx, store)
+        result["reminder"] = (
+            "your phase just changed — refresh your one-line status with "
+            "current_state_set so the owner's pane says what you're doing now"
+        )
         return result
 
     defs: list[tuple[ToolDef, Any]] = [
@@ -572,6 +614,37 @@ def register_tools(ctx: PluginContext, store: ScopeStore) -> None:
                 risk_level="low",
             ),
             _list,
+        ),
+        (
+            ToolDef(
+                name="current_state_set",
+                description=(
+                    "Your one-line status, in your own words, shown verbatim "
+                    "at the top of the owner's Missions pane under the "
+                    "mission statement — what you are doing right now at the "
+                    "mission level (e.g. 'Working on making myself good "
+                    "enough for this job — mapping the glaze catalog first.'). "
+                    "Plain words, first person, no internal codes, under 200 "
+                    "characters. Refresh it whenever what you're doing "
+                    "changes: after mission_set, a stage or phase change, a "
+                    "weekly review, or a shift in focus. scope_list shows "
+                    "current_state_age_days — if it's older than a few days, "
+                    "it's probably stale."
+                ),
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "text": {
+                            "type": "string",
+                            "description": "The status line, one plain sentence in your own voice.",
+                        },
+                    },
+                    "required": ["text"],
+                },
+                policy="auto_approve",
+                risk_level="low",
+            ),
+            _current_state,
         ),
         (
             ToolDef(

@@ -129,15 +129,16 @@ function renderBlocked(b) {
   $('blocked-cta').href = `${BASE}/#marketplace`;
 }
 
-// 1 · ACTIVE MISSION — statement, current state in plain words
-// (the "feeling" quote moved out of the hero; morale detail lives on the
-// Operational dashboard heartbeat panel where it has context)
+// 1 · ACTIVE MISSION — statement, then the agent's own one-line status
+// (she writes it via current_state_set and it renders verbatim — the UI
+// never invents this sentence; morale detail lives on the ops heartbeat panel)
 function renderHero(o) {
   const phase = o.state ? o.state.agent_phase : 'setup';
   $('mission-statement').textContent = o.mission.statement;
-  $('mission-phase').innerHTML = '<span class="state-label">Current state</span>' + esc(phase === 'work'
-    ? 'On the job — working the mission.'
-    : 'Working on making myself good enough for this job.');
+  const said = ((o.state && o.state.current_state) || '').trim();
+  const fallback = phase === 'work' ? 'working the mission' : 'onboarding';
+  $('mission-phase').innerHTML =
+    `<span class="state-label">Current state</span> ${said ? esc(said) : `<span class="unsaid">${fallback}</span>`}`;
   const wins = (o.value_log || []).length;
   const open = ((o.loops || {}).open || []).length;
   $('mission-meta').textContent =

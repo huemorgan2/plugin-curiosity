@@ -129,13 +129,16 @@ def test_prompt_budget_sanity():
     # 0.9.2 raised daily/weekly/kickoff/setup: OWNER_WORDS (plain-words rule)
     # and WIKI_BINDING (mission-wiki scoping) ride every recurring surface —
     # both are correctness contracts, not verbosity.
+    # 0.9.10 raised setup/work: the STATUS LINE rule (current_state_set —
+    # the pane shows the agent's one-liner verbatim; a UI-invented sentence
+    # was the alternative) rides both phase branches.
     assert len(DAILY_RESEARCH_TARGET) < 5100
     assert len(WEEKLY_REVIEW_TARGET) < 7900
     assert len(_KICKOFF_CONTENT.format(statement="x", wiki_note="")) < 12500
-    assert len(prompt_fragment(MISSION, "setup")) < 9400
+    assert len(prompt_fragment(MISSION, "setup")) < 9650
     wiki_bound = dict(MISSION, wiki_id="grow-signups-abc123")
-    assert len(prompt_fragment(wiki_bound, "setup")) < 9600
-    assert len(prompt_fragment(wiki_bound, "work")) < 2400
+    assert len(prompt_fragment(wiki_bound, "setup")) < 9850
+    assert len(prompt_fragment(wiki_bound, "work")) < 2700
 
 
 def test_owner_words_covers_chat_and_tool_output_translation():

@@ -54,6 +54,13 @@ class Mission(Base):
     # phase 10: reserved seam — bound when plugin-wiki ships multi-wiki
     # (mission adoption creates a named wiki and stores its id here).
     wiki_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # 0.9.10: one line in the agent's own words — what she's doing right now
+    # at the mission level. Shown verbatim in the pane hero; the UI never
+    # invents this sentence. current_state_at feeds a server-computed age.
+    current_state: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    current_state_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
     )
@@ -327,6 +334,9 @@ _ADDITIVE_COLUMNS: dict[str, tuple[tuple[str, str], ...]] = {
         # phase 10
         ("role_version", "INTEGER NOT NULL DEFAULT 1"),
         ("wiki_id", "VARCHAR(64)"),
+        # 0.9.10
+        ("current_state", "TEXT NOT NULL DEFAULT ''"),
+        ("current_state_at", "TIMESTAMP WITH TIME ZONE"),
     ),
     "curiosity_goals": (
         ("expected_result", "TEXT NOT NULL DEFAULT ''"),

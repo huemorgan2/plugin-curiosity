@@ -434,6 +434,10 @@ def register_tools(ctx: PluginContext, store: MissionStore) -> None:
             "schedules": await _sync_schedules(ctx),
             # fire-and-forget: the kickoff moment posts right after this turn
             "kickoff": research.spawn_kickoff(ctx, mission["statement"], wiki_slug=slug),
+            "reminder": (
+                "set your one-line status now with current_state_set — the "
+                "owner's pane shows it under the mission statement"
+            ),
         }
 
     async def _refine(
@@ -671,6 +675,10 @@ def prompt_fragment(
         "connected channel (WhatsApp, email) to reach the owner off-platform — "
         "say so plainly: 'install X / connect me and I can do Y'. Use "
         "mission_refine as your understanding sharpens. "
+        "STATUS LINE: the owner's pane shows one line from you, verbatim — "
+        "keep it true with current_state_set (what you're doing right now, "
+        "plain first-person words); refresh it whenever your focus, stage, "
+        "or phase changes. "
     )
     if phase == "work":
         posture = (
