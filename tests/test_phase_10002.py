@@ -21,19 +21,19 @@ from plugin_curiosity import CuriosityPlugin
 UI = Path(__file__).parent.parent / "plugin_curiosity" / "ui"
 
 
-# ---- manifest: two panes ----------------------------------------------------
+# ---- manifest: one pane, two tabs (0.9.5) ------------------------------------
 
 
-def test_manifest_advertises_both_panes():
+def test_manifest_advertises_single_pane_with_ops_tab():
     secs = CuriosityPlugin.manifest.sidebar_sections
-    assert [s.id for s in secs] == ["missions", "noc"]
-    noc = secs[1]
-    assert noc.label == "NOC"
-    assert noc.icon == "activity"
-    assert noc.sort_order == 46
-    assert noc.path == "ui/noc/"
-    # missions keeps the classic default URL (path unset or "ui/")
+    assert [s.id for s in secs] == ["missions"]
     assert getattr(secs[0], "path", "ui/") == "ui/"
+    # the ops wall is a tab inside the Missions pane, embedded from ui/noc/
+    index = (UI / "index.html").read_text()
+    assert "Operational dashboard" in index
+    assert 'id="ops-frame"' in index
+    app = (UI / "app.js").read_text()
+    assert "noc/?v=" in app  # tab 2 lazy-loads the embedded document
 
 
 def test_noc_assets_ship_with_the_package():
@@ -155,13 +155,13 @@ def test_ui_noc_serves_stamped_noc_pane(client: TestClient):
     r = client.get("/api/p/plugin-curiosity/ui/noc/")
     assert r.status_code == 200
     assert f"app.js?v={v}" in r.text and f"style.css?v={v}" in r.text
-    assert "Network operations" in r.text
+    assert "Operational dashboard" in r.text  # renamed from NOC in 0.9.5
 
 
 def test_ui_noc_no_trailing_slash_serves_noc_index(client: TestClient):
     r = client.get("/api/p/plugin-curiosity/ui/noc")
     assert r.status_code == 200
-    assert "Network operations" in r.text
+    assert "Operational dashboard" in r.text
 
 
 def test_ui_noc_assets_served(client: TestClient):

@@ -7,6 +7,14 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+  <!-- 0.9.5: one pane, two tabs. Tab 2 embeds ui/noc/ (the operations wall)
+       so both views share one sidebar entry. -->
+  <nav class="tabs" role="tablist">
+    <button id="tab-missions" class="tab active" role="tab" aria-selected="true">Missions</button>
+    <button id="tab-ops" class="tab" role="tab" aria-selected="false">Operational dashboard</button>
+  </nav>
+
+  <div id="view-missions">
   <!-- Blocked screen: a hard dependency is missing. -->
   <div id="blocked" class="blocked hidden">
     <div class="blocked-card">
@@ -93,6 +101,11 @@
       <span id="foot-note"></span>
       <span id="foot-updated"></span>
     </footer>
+  </div>
+  </div><!-- /view-missions -->
+
+  <div id="view-ops" class="view-ops hidden">
+    <iframe id="ops-frame" title="Operational dashboard"></iframe>
   </div>
 
   <div id="tip" class="tip hidden"></div>

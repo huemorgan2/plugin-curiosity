@@ -1,4 +1,5 @@
-// NOC pane (10.002) — the dense operations wall: role wall, heartbeat, gap
+// Operational dashboard (ex-NOC, 10.002; embedded as the Missions pane's
+// second tab since 0.9.5) — the dense operations wall: role wall, heartbeat, gap
 // board, activity, shelf, machinery, chips, past missions. Same overview
 // payload and live bridge as the Missions pane.
 

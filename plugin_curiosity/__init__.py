@@ -354,7 +354,7 @@ def schedule_on_load_work(
 class CuriosityPlugin(LunaPlugin):
     manifest = PluginManifest(
         name="plugin-curiosity",
-        version="0.9.4",
+        version="0.9.5",
         description=(
             "Mission-driven curiosity: research, wiki-building, nightly dreams, "
             "self-set goals, weekly mission reviews, proactive reflections, and "
@@ -367,17 +367,12 @@ class CuriosityPlugin(LunaPlugin):
         depends_on=["plugin-wiki", "plugin-scheduler"],
         db_tables=[t.name for t in ALL_TABLES],
         routes_module="routes",
-        # 10.002: two panes — Missions (owner-facing summary) and NOC (the
-        # dense operations wall). NOC rides SidebarSection.path (luna 031);
-        # on an older host that ignores the field, the NOC item degrades to
-        # the Missions pane instead of breaking the sidebar.
+        # 0.9.5: ONE sidebar entry. The operations wall (ex-NOC) lives inside
+        # the Missions pane as its second tab ("Operational dashboard"),
+        # embedded from ui/noc/ — the noc/ directory keeps its URL so old
+        # deep links and the embed share one document.
         sidebar_sections=(
-            [
-                SidebarSection(id="missions", label="Missions", icon="target", sort_order=45),
-                SidebarSection(
-                    id="noc", label="NOC", icon="activity", sort_order=46, path="ui/noc/"
-                ),
-            ]
+            [SidebarSection(id="missions", label="Missions", icon="target", sort_order=45)]
             if SidebarSection is not None
             else []
         ),

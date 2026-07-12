@@ -84,7 +84,7 @@ def test_manifest_hard_dependencies_declared():
 
 def test_manifest_sidebar_section():
     secs = CuriosityPlugin.manifest.sidebar_sections
-    assert len(secs) == 2  # 10.002: Missions + NOC
+    assert len(secs) == 1  # 0.9.5: one pane; the ops wall is a tab inside it
     assert secs[0].id == "missions"
     assert secs[0].label == "Missions"
 

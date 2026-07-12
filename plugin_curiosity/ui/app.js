@@ -1,6 +1,6 @@
 // Missions pane (10.002) — the owner-facing summary: mission, job
-// description, setup ladder, goals. Everything operational lives in the NOC
-// pane. Auth + live-bridge handshake follow plugin-marketplace's pane.
+// description, setup ladder, goals. Everything operational lives in the
+// Operational dashboard tab (ui/noc/, embedded since 0.9.5). Auth + live-bridge handshake follow plugin-marketplace's pane.
 
 const PLUGIN = 'plugin-curiosity';
 // Agent base path (e.g. "/a/<slug>") from this iframe's own URL — the API
@@ -17,6 +17,19 @@ let loadTimer = null;
 window.addEventListener('message', (e) => {
   const d = e.data;
   if (!d) return;
+  const frame = document.getElementById('ops-frame');
+  // 0.9.5 relay — the ops tab embeds ui/noc/, whose window.parent is THIS
+  // page, not the shell. Forward its handshake up and the shell's auth +
+  // live-bridge events down, so the embedded wall stays live.
+  if (frame && e.source === frame.contentWindow) {
+    if (d.type === 'luna-request-auth' || d.type === 'luna-ui-ready') {
+      try { window.parent.postMessage(d, window.location.origin); } catch {}
+    }
+    return;
+  }
+  if ((d.type === 'luna-auth' || d.type === 'luna-plugin-event') && frame && frame.src) {
+    try { frame.contentWindow.postMessage(d, window.location.origin); } catch {}
+  }
   if (d.type === 'luna-auth' && d.token) {
     const first = !TOKEN;
     TOKEN = d.token;
@@ -108,7 +121,7 @@ function render() {
   renderSetup(o);
   renderGoals(o);
 
-  $('foot-note').textContent = `plugin-curiosity ${o.plugin_version} · operations detail lives in the NOC pane`;
+  $('foot-note').textContent = `plugin-curiosity ${o.plugin_version} · operations detail lives in the Operational dashboard tab`;
   $('foot-updated').textContent = `updated ${new Date().toLocaleTimeString()}`;
 }
 
@@ -357,6 +370,29 @@ async function load() {
     }
   }
 }
+
+// ---- tabs (0.9.5) -----------------------------------------------------------
+// Tab 2 lazy-loads ui/noc/ on first open; #ops in the URL deep-links to it
+// (replaces the retired NOC sidebar entry).
+
+function setTab(ops) {
+  $('tab-missions').classList.toggle('active', !ops);
+  $('tab-ops').classList.toggle('active', ops);
+  $('tab-missions').setAttribute('aria-selected', String(!ops));
+  $('tab-ops').setAttribute('aria-selected', String(ops));
+  show('view-missions', !ops);
+  show('view-ops', ops);
+  if (ops) {
+    const frame = $('ops-frame');
+    if (!frame.src) frame.src = `noc/?v=${encodeURIComponent(DATA?.plugin_version || '')}`;
+  }
+  try { history.replaceState(null, '', ops ? '#ops' : '#'); } catch {}
+}
+$('tab-missions').addEventListener('click', () => setTab(false));
+$('tab-ops').addEventListener('click', () => setTab(true));
+if (window.location.hash === '#ops') setTab(true);
+// deep links also arrive as hash-only navigations (no reload)
+window.addEventListener('hashchange', () => setTab(window.location.hash === '#ops'));
 
 // Tell the shell we're ready (it replies with luna-auth and starts forwarding
 // luna-plugin-event messages), then load with whatever token we have.
