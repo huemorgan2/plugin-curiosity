@@ -54,7 +54,13 @@ from . import abilities, comms, gating, goals, loops, mission, research, scopes,
 from .abilities import AbilityStore
 from .goals import GoalStore
 from .loops import LoopStore
-from .mission import MISSION_FIRST_NOTE, MissionStore, prompt_fragment, register_tools
+from .mission import (
+    MISSION_FIRST_NOTE,
+    MissionStore,
+    prompt_fragment,
+    register_tools,
+    rewrite_onboarding_addendum,
+)
 from .models import ALL_TABLES, Flag, apply_additive_migrations
 from .scopes import ScopeStore
 from .telemetry import HeartbeatStore
@@ -181,6 +187,26 @@ async def _flag_set(sf, key: str, value: str = "1") -> None:
         await s.commit()
 
 
+async def _setup_incomplete(sf) -> bool:
+    """0.9.13: True while first-run setup is in progress. Raw SQL because the
+    SDK exposes no identity accessor. The identity row is created lazily on
+    the first turn, so on the table three states matter: no row at all =
+    setup never started (fresh install — still in setup), row with
+    setup_completed false = mid-setup, row true = done. A failed query (no
+    identity table, exotic core) reads as 'not in setup' so the kickoff
+    behaves exactly as before."""
+    try:
+        from sqlalchemy import text as _sql
+
+        async with sf() as s:
+            row = (
+                await s.execute(_sql("SELECT setup_completed FROM identity LIMIT 1"))
+            ).first()
+        return row is None or not row[0]
+    except Exception:  # noqa: BLE001
+        return False
+
+
 async def maybe_send_install_kickoff(ctx: PluginContext, store: MissionStore) -> bool:
     """8.1C: once ever — if the plugin loads with no mission and the kickoff
     was never sent, post the install-kickoff moment (the agent introduces its
@@ -193,6 +219,12 @@ async def maybe_send_install_kickoff(ctx: PluginContext, store: MissionStore) ->
     if await store.get() is not None:
         # a mission already exists — the ask is moot, never send
         await _flag_set(sf, INSTALL_KICKOFF_FLAG, "skipped: mission present")
+        return False
+    if await _setup_incomplete(sf):
+        # 0.9.13: first-run setup owns the mission ask (mission-first flow in
+        # the claimed onboarding slot) — a kickoff now would ask twice. Defer
+        # WITHOUT setting the flag: it stays armed for a post-setup
+        # missionless agent and self-cancels above once a mission exists.
         return False
     if not callable(getattr(ctx, "send_muted_message", None)):
         return False
@@ -378,7 +410,7 @@ if "prompt_overrides" in getattr(PluginManifest, "model_fields", {}):
 class CuriosityPlugin(LunaPlugin):
     manifest = PluginManifest(
         name="plugin-curiosity",
-        version="0.9.12",
+        version="0.9.13",
         description=(
             "Mission-driven curiosity: research, wiki-building, nightly dreams, "
             "self-set goals, weekly mission reviews, proactive reflections, and "
@@ -618,7 +650,14 @@ class CuriosityPlugin(LunaPlugin):
             return
         for s in secs:
             if getattr(s, "source", "") == "core.onboarding":
-                s.text = MISSION_FIRST_NOTE + "\n\n" + s.text
+                # 0.9.13 (luna 036: the claim binds to the LIVE addendum):
+                # rewrite the flow to mission-first, preserving the live
+                # SETUP STATE block; unknown addendum shape → prepend note.
+                rewritten = rewrite_onboarding_addendum(s.text)
+                if rewritten is not None:
+                    s.text = rewritten
+                else:
+                    s.text = MISSION_FIRST_NOTE + "\n\n" + s.text
                 break
 
     async def _reorder_prompt(self, hctx) -> None:

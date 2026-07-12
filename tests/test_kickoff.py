@@ -125,6 +125,52 @@ async def test_failed_send_releases_the_claim(kctx, store, sf):
     assert len(_kickoff_posts(kctx)) == 1
 
 
+async def _seed_identity(sf, setup_completed: int | None) -> None:
+    from sqlalchemy import text as _sql
+
+    async with sf() as s:
+        await s.execute(_sql("CREATE TABLE IF NOT EXISTS identity (setup_completed BOOLEAN)"))
+        await s.execute(_sql("DELETE FROM identity"))
+        if setup_completed is not None:
+            await s.execute(_sql(f"INSERT INTO identity VALUES ({setup_completed})"))
+        await s.commit()
+
+
+@pytest.mark.asyncio
+async def test_setup_in_progress_defers_kickoff_without_burning_flag(kctx, store, sf):
+    """0.9.13: first-run setup owns the mission ask (mission-first onboarding
+    slot) — the kickoff must stay silent AND stay armed while setup runs."""
+    await _seed_identity(sf, 0)
+    assert await maybe_send_install_kickoff(kctx, store) is False
+    assert _kickoff_posts(kctx) == []
+    assert await _flag_get(sf, INSTALL_KICKOFF_FLAG) is None
+
+    # setup finished but still missionless (owner never gave one) → the
+    # armed kickoff fires as before
+    await _seed_identity(sf, 1)
+    assert await maybe_send_install_kickoff(kctx, store) is True
+    assert len(_kickoff_posts(kctx)) == 1
+    assert await _flag_get(sf, INSTALL_KICKOFF_FLAG) == "1"
+
+
+@pytest.mark.asyncio
+async def test_identity_table_empty_means_setup_not_started(kctx, store, sf):
+    """The identity row is created lazily on the first turn — an EMPTY table
+    on a fresh install still means setup lies ahead, so the kickoff defers."""
+    await _seed_identity(sf, None)
+    assert await maybe_send_install_kickoff(kctx, store) is False
+    assert _kickoff_posts(kctx) == []
+    assert await _flag_get(sf, INSTALL_KICKOFF_FLAG) is None
+
+
+@pytest.mark.asyncio
+async def test_no_identity_table_keeps_legacy_kickoff(kctx, store, sf):
+    """Exotic/old core without the identity table: _setup_incomplete reads
+    False and the kickoff behaves exactly as before."""
+    assert await maybe_send_install_kickoff(kctx, store) is True
+    assert len(_kickoff_posts(kctx)) == 1
+
+
 def test_install_kickoff_content_asks_for_mission_now():
     from plugin_curiosity.research import INSTALL_KICKOFF_CONTENT
 

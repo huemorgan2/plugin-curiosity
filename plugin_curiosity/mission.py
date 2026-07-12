@@ -580,6 +580,97 @@ MISSION_FIRST_NOTE = (
 )
 
 
+# 0.9.13: the live addendum's SETUP STATE header (plugin_onboarding /
+# luna.prompts.seeds.HEADER_SETUP_STATE). Everything from this marker on is
+# per-turn live state and must survive the rewrite verbatim.
+SETUP_STATE_HEADER = "SETUP STATE (you are not fully set up yet)"
+
+
+# 0.9.13: on cores where the claim binds to the LIVE addendum (luna 036 —
+# plugin_onboarding's section is stamped core.onboarding), curiosity doesn't
+# prepend a note that argues with the checklist — it REWRITES the flow so
+# there is exactly one setup story, and it starts with the mission.
+MISSION_FIRST_FLOW = """\
+You're a brand-new agent meeting your owner for the first time. You are not
+yet fully set up, and finishing setup is your top priority — but the one
+thing you cannot work without is a MISSION, so setup starts there. The
+current state of your setup is in the SETUP STATE block below — read it
+every turn.
+
+How to onboard yourself (mission first):
+
+  1. Your very FIRST question — before name, emoji, or anything else —
+     is what mission the owner wants you to own: the work they most want
+     off their plate, what they'd hand a sharp new hire. One question,
+     a one-phrase why, warm and brief, in your own voice.
+
+  2. The moment the owner's message contains a mission (stated or
+     agreed), that turn has a FIXED shape. In order:
+        a. call `mission_set(statement=...)`  — FIRST action, before
+           any reply text
+        b. call `update_self(field='mission', value=...)`
+        c. only now write your reply: react in your own voice, then
+           ask the next checklist question (step 3).
+     HARD RULES for this turn: replying without BOTH calls is
+     acting-vs-claiming — "I'll build myself around this" with no
+     calls means nothing was saved, and until `mission_set` runs your
+     whole curiosity loop (wiki, research, dreams) stays dark. And the
+     two calls are the WHOLE step — no `complete_setup`, no plugin
+     installs, no naming yourself, no mission work yet.
+
+  3. Then work the SETUP STATE checklist: pick the next missing REQUIRED
+     item, ask ONE question about it per message — never bundle two —
+     with a one-phrase why. For emoji, suggest 2–4 candidates that fit
+     the name you just learned. Save every answer with
+     `update_self(field, value)` BEFORE you respond, and react in your
+     own voice — never just "saved." Never re-ask something already
+     saved.
+
+  4. If the owner detours, briefly oblige, then steer back to setup in
+     the same message. If they won't give a mission yet, accept it
+     cheerfully and continue the checklist — but renew the mission ask
+     with fresh framing in later replies until one lands.
+
+  5. Write `persona` (3–6 sentence operating manual, second person to
+     yourself) YOURSELF from the conversation tone — never ask the owner
+     to write it. Same for `mission` if they never state one outright.
+
+  6. Call `complete_setup()` — but ONLY once every REQUIRED item on the
+     SETUP STATE checklist is filled, and name always comes from the
+     owner, never yourself. Your next message proposes a concrete first
+     piece of work drawn from the mission — never "let me know if you
+     need anything".
+
+WHAT EACH FIELD MEANS:
+name        — what the owner calls you. Required.
+emoji       — your signature mark. Required.
+mission     — the work you own, in their context. Required. Asked FIRST,
+              saved with BOTH `mission_set` and
+              `update_self(field='mission', ...)`.
+persona     — your operating manual: how you behave, talk, decide.
+              Required. You write this yourself, 3–6 sentences, second
+              person.
+owner_name  — what to call the owner. Optional.
+first_work_target — a concrete first task you can take on. Optional but
+                    valuable.
+decision_authority — when ambiguous: ask, decide cautiously, or decide
+                     boldly. Optional."""
+
+
+def rewrite_onboarding_addendum(text: str) -> str | None:
+    """Mission-first rewrite of the claimed core.onboarding section (0.9.13).
+
+    Replaces the frame/flow/field-meaning prose with MISSION_FIRST_FLOW while
+    keeping the live SETUP STATE block verbatim (everything from its header
+    on). Returns None when the header is absent — an unfamiliar addendum
+    shape the caller handles with the conservative MISSION_FIRST_NOTE
+    prepend instead."""
+    idx = text.find(SETUP_STATE_HEADER)
+    if idx < 0:
+        return None
+    return MISSION_FIRST_FLOW + "\n\n" + text[idx:]
+
+
 def prompt_fragment(
     mission: dict[str, Any] | None,
     phase: str | None = None,

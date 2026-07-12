@@ -18,7 +18,13 @@ import pytest
 
 import plugin_curiosity as pc
 from plugin_curiosity import CuriosityPlugin
-from plugin_curiosity.mission import MISSION_FIRST_NOTE, prompt_fragment
+from plugin_curiosity.mission import (
+    MISSION_FIRST_FLOW,
+    MISSION_FIRST_NOTE,
+    SETUP_STATE_HEADER,
+    prompt_fragment,
+    rewrite_onboarding_addendum,
+)
 
 
 def _sec(source: str, text: str = "x") -> types.SimpleNamespace:
@@ -129,6 +135,44 @@ async def test_no_own_sections_is_a_noop(claims_core):
     await p._occupy_prompt(hctx)
     assert hctx.sections == sections
     assert sections[1].text == "checklist"
+
+
+_LIVE_ADDENDUM = (
+    "You're a brand-new agent meeting your owner for the first time.\n\n"
+    "How to onboard yourself:\n\n  1. Look at SETUP STATE. Pick the next "
+    "REQUIRED item.\n\n"
+    "WHAT EACH FIELD MEANS:\nname — what the owner calls you.\n\n"
+    f"{SETUP_STATE_HEADER}:\n\nMissing — required:\n  ☐ name\n  ☐ emoji\n\n"
+    "Tools: `update_self(field, value)`, `complete_setup()`."
+)
+
+
+@pytest.mark.asyncio
+async def test_missionless_rewrites_live_addendum_mission_first(claims_core):
+    """0.9.13 (luna 036): the claim binds to the LIVE addendum — the flow is
+    REWRITTEN mission-first, the per-turn SETUP STATE block survives
+    verbatim, and the old name-first flow is gone."""
+    p = _plugin(None)
+    drive = _sec("core.drive", "core drive")
+    onboarding = _sec("core.onboarding", _LIVE_ADDENDUM)
+    own = _sec("plugin-curiosity", "mission ask")
+    hctx = types.SimpleNamespace(sections=[drive, onboarding, own])
+    await p._occupy_prompt(hctx)
+    assert onboarding.text.startswith(MISSION_FIRST_FLOW)
+    assert onboarding.text.endswith("Tools: `update_self(field, value)`, `complete_setup()`.")
+    assert "☐ name" in onboarding.text  # live state kept verbatim
+    assert "Look at SETUP STATE. Pick the next REQUIRED item." not in onboarding.text
+    assert MISSION_FIRST_NOTE not in onboarding.text  # rewrite, not prepend
+
+
+def test_rewrite_helper_none_without_header():
+    assert rewrite_onboarding_addendum("some other addendum shape") is None
+
+
+def test_mission_first_flow_unifies_both_saves():
+    assert "mission_set" in MISSION_FIRST_FLOW
+    assert "update_self(field='mission', ...)" in MISSION_FIRST_FLOW
+    assert "FIRST question" in MISSION_FIRST_FLOW
 
 
 def test_slot_mode_fragment_drops_ordering_prose():
