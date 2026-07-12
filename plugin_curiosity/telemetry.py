@@ -33,6 +33,7 @@ from sqlalchemy import select
 from luna_sdk import PluginContext, ToolDef
 
 from .models import HeartbeatReport, Mission
+from .scopes import STAGE_LABELS
 
 log = logging.getLogger("plugin-curiosity")
 
@@ -144,6 +145,9 @@ def compute_pace(
     `on-track`. Work phase paces only on loop debt (stages are done).
     """
     now = now or _utcnow()
+    # reasons travel into owner-facing surfaces (heartbeat notes, pace nudges)
+    # — stage words, never S-codes (role-resilience dojo, curiosity 0.9.4)
+    stage_word = STAGE_LABELS.get(setup_stage, (setup_stage, ""))[0]
     reasons: list[str] = []
     band = "on-track"
     if agent_phase == "work":
@@ -158,7 +162,7 @@ def compute_pace(
         if setup_stage == "S2" and stage_age_days >= 5:
             reasons.append(f"charter un-ratified for {stage_age_days} days")
         elif stage_age_days >= 7:
-            reasons.append(f"{stage_age_days} days on stage {setup_stage}")
+            reasons.append(f"{stage_age_days} days at the '{stage_word}' step")
     elif overdue_loops == 1 or stage_age_days >= 4 or (setup_stage == "S2" and stage_age_days >= 3):
         band = "dragging"
         if overdue_loops == 1:
@@ -166,10 +170,10 @@ def compute_pace(
         if setup_stage == "S2" and stage_age_days >= 3:
             reasons.append(f"ratification pending {stage_age_days} days")
         elif stage_age_days >= 4:
-            reasons.append(f"{stage_age_days} days on stage {setup_stage}")
+            reasons.append(f"{stage_age_days} days at the '{stage_word}' step")
     elif stage_age_days <= 1 and setup_stage not in ("S0",):
         band = "ahead"
-        reasons.append(f"reached {setup_stage} within the last day")
+        reasons.append(f"reached '{stage_word}' within the last day")
     if band == "on-track" and not reasons:
         reasons.append("no overdue loops, stage moving at pace")
     last_report_age_hours = None

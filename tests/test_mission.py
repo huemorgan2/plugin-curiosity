@@ -126,6 +126,16 @@ async def test_refine_and_get(ctx):
 
 
 @pytest.mark.asyncio
+async def test_mission_dict_carries_stage_owner_words(ctx):
+    # 0.9.4: agents quoted the bare stage code to owners ("still at S0") —
+    # the mission dict must hand them the words instead.
+    await call(ctx, "mission_set", statement="grow signups")
+    got = (await call(ctx, "mission_get"))["mission"]
+    assert got["setup_stage"] == "S0"
+    assert got["setup_stage_owner_words"].startswith("understood — ")
+
+
+@pytest.mark.asyncio
 async def test_prompt_fragment(ctx, store):
     from plugin_curiosity.mission import prompt_fragment
 

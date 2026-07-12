@@ -27,6 +27,7 @@ from luna_sdk import PluginContext, ToolDef
 
 from . import dream, prompts, research, review, telemetry, wikibind
 from .models import Mission
+from .scopes import STAGE_LABELS
 
 log = logging.getLogger("plugin-curiosity")
 
@@ -151,6 +152,10 @@ async def ensure_success_criteria_page(ctx: PluginContext, store: MissionStore) 
 
 
 def _mission_dict(m: Mission) -> dict[str, Any]:
+    # setup_stage_owner_words: role-resilience dojo caught agents quoting the
+    # bare code to owners ("still at S0") — a prompt rule alone didn't stop it,
+    # so the dict itself carries the words to say.
+    words = STAGE_LABELS.get(m.setup_stage)
     return {
         "id": str(m.id),
         "statement": m.statement,
@@ -159,6 +164,7 @@ def _mission_dict(m: Mission) -> dict[str, Any]:
         "active": m.active,
         "agent_phase": m.agent_phase,
         "setup_stage": m.setup_stage,
+        "setup_stage_owner_words": f"{words[0]} — {words[1]}" if words else m.setup_stage,
         "role_version": getattr(m, "role_version", 1) or 1,
         "wiki_id": getattr(m, "wiki_id", None),
         "phase_entered_at": m.phase_entered_at.isoformat() if m.phase_entered_at else None,
