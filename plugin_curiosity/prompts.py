@@ -114,13 +114,17 @@ NO_BLAME = (
 # 0.9.2: owner-visible text is plain words — S-codes and tool names are
 # internal shorthand and leak badly (9.002 prod e2e caught "S1"/"S2" in goal
 # titles and heartbeat notes rendering verbatim in the owner's pane).
+# 0.9.3: chat replies listed explicitly — the role-resilience dojo caught
+# "Setup stage: still S0" said straight to the owner; the leak vector is the
+# agent parroting tool output, hence the translate-before-repeating clause.
 OWNER_WORDS = (
-    "OWNER WORDS: everything the owner reads — goal statements, loop "
-    "statements, heartbeat notes and morale, share_thought text, wiki prose "
-    "and summaries — uses plain words only. Never write stage codes (S0..S5) "
-    "or tool names there; say 'posted, awaiting your ratification', not "
-    "'S2'. Codes are for tool arguments (stage_set) and your own reasoning "
-    "only."
+    "OWNER WORDS: everything the owner reads — chat replies, goal statements, "
+    "loop statements, heartbeat notes and morale, share_thought text, wiki "
+    "prose and summaries — uses plain words only. Never write stage codes "
+    "(S0..S5) or tool names there; say 'posted, awaiting your ratification', "
+    "not 'S2'. When a tool returns codes, translate them before repeating "
+    "anything to the owner. Codes are for tool arguments and your own "
+    "reasoning only."
 )
 
 # 0.9.2: the mission-bound wiki. mission_get returns wiki_id when the mission

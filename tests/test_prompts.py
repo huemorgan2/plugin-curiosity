@@ -136,3 +136,13 @@ def test_prompt_budget_sanity():
     wiki_bound = dict(MISSION, wiki_id="grow-signups-abc123")
     assert len(prompt_fragment(wiki_bound, "setup")) < 9600
     assert len(prompt_fragment(wiki_bound, "work")) < 2400
+
+
+def test_owner_words_covers_chat_and_tool_output_translation():
+    """0.9.3: the role-resilience dojo caught 'Setup stage: still S0' said
+    straight to the owner in chat — the rule must name chat replies and the
+    parroting vector (repeating codes out of tool results)."""
+    from plugin_curiosity.prompts import OWNER_WORDS
+
+    assert "chat replies" in OWNER_WORDS
+    assert "translate" in OWNER_WORDS

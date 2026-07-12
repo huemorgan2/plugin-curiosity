@@ -148,3 +148,36 @@ async def test_prompt_fragment(ctx, store):
     # the action rails are taught in both states
     for text in (empty, frag):
         assert "trigger_" in text and "playbook_propose" in text
+
+
+# ---- 0.9.3: mission_schedules_sync — self-heal for wiped triggers -------------
+
+
+@pytest.mark.asyncio
+async def test_schedules_sync_restores_wiped_triggers(ctx):
+    from plugin_curiosity.mission import MISSION_SCHEDULES
+
+    await call(ctx, "mission_set", statement="grow signups")
+    # server-side wipe: the scheduler account lost every trigger
+    ctx.tool_registry.existing_triggers.clear()
+
+    r = await call(ctx, "mission_schedules_sync")
+    assert "created" in r["schedules"]
+    names = {t["name"] for t in ctx.tool_registry.existing_triggers}
+    assert names == {s["name"] for s in MISSION_SCHEDULES}
+
+    # idempotent: a second sync touches nothing
+    n = len(ctx.tool_registry.trigger_created)
+    r2 = await call(ctx, "mission_schedules_sync")
+    assert r2["schedules"] == "already registered"
+    assert len(ctx.tool_registry.trigger_created) == n
+
+
+@pytest.mark.asyncio
+async def test_schedules_sync_without_mission_or_scheduler(ctx):
+    assert "error" in await call(ctx, "mission_schedules_sync")  # no mission
+
+    await call(ctx, "mission_set", statement="grow signups")
+    ctx.tool_registry.scheduler_installed = False
+    r = await call(ctx, "mission_schedules_sync")
+    assert "not installed" in r["schedules"]  # degrade, never a crash

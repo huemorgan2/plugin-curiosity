@@ -114,6 +114,9 @@ function render() {
 
 function renderBlocked(b) {
   show('app', false); show('empty', false); show('blocked', true);
+  const gone = b.missing ?? [];
+  if (gone.length) $('blocked-title').textContent =
+    `Luna Missions is missing ${gone.join(' and ')} to be able to operate`;
   const deps = $('blocked-deps');
   deps.innerHTML = Object.entries(b.deps).map(([name, why]) => {
     const missing = b.missing.includes(name);

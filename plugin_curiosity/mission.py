@@ -463,6 +463,17 @@ def register_tools(ctx: PluginContext, store: MissionStore) -> None:
             return {"mission": None, "note": "no active mission — ask the owner for one"}
         return {"mission": mission}
 
+    # 0.9.3: self-heal for wiped/broken schedules. Before this, sync only ran
+    # inside mission_set/mission_refine — an agent that found its triggers gone
+    # (server reset, account migration) had to hand-craft trigger_create calls
+    # and usually restored just the heartbeat. One idempotent tool restores the
+    # whole spec: missing triggers are created, drifted ones repaired.
+    async def _schedules_sync() -> dict[str, Any]:
+        mission = await store.get()
+        if mission is None:
+            return {"error": "no active mission — no schedules to sync"}
+        return {"schedules": await _sync_schedules(ctx)}
+
     defs: list[tuple[ToolDef, Any]] = [
         (
             ToolDef(
@@ -522,6 +533,24 @@ def register_tools(ctx: PluginContext, store: MissionStore) -> None:
                 risk_level="low",
             ),
             _get,
+        ),
+        (
+            ToolDef(
+                name="mission_schedules_sync",
+                description=(
+                    "Verify and restore your recurring mission schedules "
+                    "(research, dream, review, setup heartbeat). Idempotent: "
+                    "missing triggers are recreated, drifted ones repaired, "
+                    "healthy ones left alone. Use this whenever an audit shows "
+                    "triggers missing or wrong — do not hand-craft "
+                    "trigger_create calls for your own mission schedules."
+                ),
+                parameters={"type": "object", "properties": {}},
+                policy="auto_approve",
+                risk_level="low",
+                timeout_seconds=120,
+            ),
+            _schedules_sync,
         ),
     ]
     for tool_def, handler in defs:
