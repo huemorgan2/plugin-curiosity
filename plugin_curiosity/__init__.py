@@ -36,6 +36,11 @@ try:  # cores with plugin-owned panes (the 9.002 target) export it
 except ImportError:  # pragma: no cover - older core: no pane, plugin still loads
     SidebarSection = None
 
+try:  # cores with the skill system (006.0) export it
+    from luna_sdk import SkillDef
+except ImportError:  # pragma: no cover - older core: tools register ungated
+    SkillDef = None
+
 # 0.9.7 (core 034/phase03) feature probe: cores that support prompt-slot
 # claims export CLAIMABLE_SOURCES from luna_sdk. Older cores don't — the
 # plugin then keeps its legacy append+reorder behavior.
@@ -45,7 +50,7 @@ try:
 except ImportError:  # pragma: no cover - older core
     _CLAIMS_SUPPORTED = False
 
-from . import abilities, comms, goals, loops, mission, research, scopes, telemetry
+from . import abilities, comms, gating, goals, loops, mission, research, scopes, telemetry
 from .abilities import AbilityStore
 from .goals import GoalStore
 from .loops import LoopStore
@@ -373,7 +378,7 @@ if "prompt_overrides" in getattr(PluginManifest, "model_fields", {}):
 class CuriosityPlugin(LunaPlugin):
     manifest = PluginManifest(
         name="plugin-curiosity",
-        version="0.9.11",
+        version="0.9.12",
         description=(
             "Mission-driven curiosity: research, wiki-building, nightly dreams, "
             "self-set goals, weekly mission reviews, proactive reflections, and "
@@ -488,6 +493,7 @@ class CuriosityPlugin(LunaPlugin):
         abilities.register_tools(ctx, self._abilities)
         comms.register_tools(ctx, self._reflections)
         telemetry.register_tools(ctx, self._heartbeats)
+        self._register_skill(ctx)
         # 8.1B → 0.9.7: prompt primacy. On claim cores (034/phase03) the
         # handler OCCUPIES the claimed core.drive slot and writes the
         # mission-first note into the claimed onboarding addendum; on older
@@ -500,6 +506,56 @@ class CuriosityPlugin(LunaPlugin):
             except Exception:  # noqa: BLE001
                 log.warning("prompt.assemble registration failed", exc_info=True)
         log.info("plugin-curiosity loaded (tools=23)")
+
+    def _register_skill(self, ctx: PluginContext) -> None:
+        """0.9.12: the mission-changes skill. Its three tools (gating.GATED_TOOLS)
+        each fire a handful of times over a mission's life — their schemas ride
+        behind this skill instead of every turn's prompt. Older cores (no skill
+        registry / no SkillDef) register the tools ungated via gating.register_tool,
+        so nothing is ever hidden without a skill to unlock it."""
+        reg = getattr(ctx, "skill_registry", None)
+        if reg is None or SkillDef is None:
+            return
+        unreg = getattr(reg, "unregister_plugin", None)
+        if callable(unreg):  # same stale-sweep rationale as the tool sweep above
+            try:
+                unreg("plugin-curiosity")
+            except Exception:  # noqa: BLE001
+                log.warning("stale-skill sweep failed", exc_info=True)
+        try:
+            reg.register(
+                "plugin-curiosity",
+                SkillDef(
+                    name=gating.SKILL_NAME,
+                    description=(
+                        "Big mission changes — reword the mission, move between "
+                        "setup and work phases (graduation), or repair mission "
+                        "schedules. Load this the turn BEFORE you need the tools."
+                    ),
+                    body=(
+                        "These tools change your mission's plan of record. They "
+                        "unlock on your NEXT turn after loading this skill — load "
+                        "it as soon as you see the change coming, not at the "
+                        "moment you need it.\n\n"
+                        "- mission_refine: reword the active mission statement or "
+                        "adjust autonomy rung / risk ceiling. Use mission_set for "
+                        "a genuinely new mission.\n"
+                        "- phase_advance: move between setup and work phase. "
+                        "to='work' proposes graduation (every scope ready, or "
+                        "explicitly waived); to='setup' is always allowed.\n"
+                        "- mission_schedules_sync: verify and restore your "
+                        "recurring mission schedules when an audit shows triggers "
+                        "missing or drifted. Never hand-craft trigger_create "
+                        "calls for your own mission schedules.\n\n"
+                        "Day-to-day tools (plan_change_note, stage_set, scope/"
+                        "goal/loop tools) are always available and do not need "
+                        "this skill."
+                    ),
+                    tools=list(gating.GATED_TOOLS),
+                ),
+            )
+        except Exception:  # noqa: BLE001
+            log.warning("mission-changes skill registration failed", exc_info=True)
 
     async def maybe_send_blocked_notice(
         self, ctx: PluginContext, missing: list[str]

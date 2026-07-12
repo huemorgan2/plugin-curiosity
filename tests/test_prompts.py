@@ -136,13 +136,18 @@ def test_prompt_budget_sanity():
     # map (ratify→approve, charter→job description, …) — owner-reported
     # jargon leak; the mapping IS the fix, so it rides every surface the
     # rule rides.
+    # 0.9.12 raised setup/work fragments: three rare tools moved behind the
+    # mission-changes skill, and every prompt that names one must also say
+    # "load the skill the turn before" (tools unlock next turn) — the
+    # load-ahead warning is the price of pulling three schemas out of EVERY
+    # turn's prompt, a large net context win.
     assert len(DAILY_RESEARCH_TARGET) < 5500
-    assert len(WEEKLY_REVIEW_TARGET) < 8350
+    assert len(WEEKLY_REVIEW_TARGET) < 8400
     assert len(_KICKOFF_CONTENT.format(statement="x", wiki_note="")) < 12800
-    assert len(prompt_fragment(MISSION, "setup")) < 9950
+    assert len(prompt_fragment(MISSION, "setup")) < 10150
     wiki_bound = dict(MISSION, wiki_id="grow-signups-abc123")
-    assert len(prompt_fragment(wiki_bound, "setup")) < 10150
-    assert len(prompt_fragment(wiki_bound, "work")) < 3050
+    assert len(prompt_fragment(wiki_bound, "setup")) < 10350
+    assert len(prompt_fragment(wiki_bound, "work")) < 3150
 
 
 def test_owner_words_covers_chat_and_tool_output_translation():

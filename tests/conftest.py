@@ -35,6 +35,9 @@ def _install_luna_sdk_stub() -> None:
     class SidebarSection(_Kwargs):
         pass
 
+    class SkillDef(_Kwargs):
+        pass
+
     class PluginContext:  # pragma: no cover - structural stand-in
         pass
 
@@ -58,6 +61,7 @@ def _install_luna_sdk_stub() -> None:
     mod.PluginManifest = PluginManifest
     mod.ToolDef = ToolDef
     mod.SidebarSection = SidebarSection
+    mod.SkillDef = SkillDef
     mod.declarative_base = declarative_base
     mod.UUID = Uuid
     mod.JSONB = JSON
@@ -93,6 +97,7 @@ class FakeToolRegistry:
 
     def __init__(self) -> None:
         self.registered: dict[str, tuple[Any, Any]] = {}
+        self.gated: set[str] = set()
         self.trigger_created: list[dict] = []
         self.trigger_updated: list[dict] = []
         self.trigger_deleted: list[str] = []
@@ -100,8 +105,10 @@ class FakeToolRegistry:
         self.scheduler_installed = True
         self.has_update_tool = True
 
-    def register(self, plugin: str, tool_def: Any, handler: Any) -> None:
+    def register(self, plugin: str, tool_def: Any, handler: Any, *, skill_gated: bool = False) -> None:
         self.registered[tool_def.name] = (tool_def, handler)
+        if skill_gated:
+            self.gated.add(tool_def.name)
 
     def get(self, name: str):
         if name in self.registered:
@@ -145,6 +152,21 @@ class FakeToolRegistry:
                 return {"deleted": True}
             return types.SimpleNamespace(handler=_delete)
         raise KeyError(name)
+
+
+class FakeSkillRegistry:
+    """Records skill registrations (0.9.12 mission-changes gate)."""
+
+    def __init__(self) -> None:
+        self.skills: dict[str, Any] = {}
+
+    def register(self, plugin: str, skill: Any) -> None:
+        self.skills[skill.name] = (plugin, skill)
+
+    def unregister_plugin(self, plugin: str) -> None:
+        self.skills = {
+            name: (p, s) for name, (p, s) in self.skills.items() if p != plugin
+        }
 
 
 class FakeWikiProvider:

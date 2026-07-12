@@ -193,7 +193,8 @@ HEARTBEAT_CONTRACT = (
     "wobbles) plus morale in your own voice (one or two words, consistent "
     "with your persona, never a status code) and a one-line note the owner "
     "sees verbatim. When the streak converges, propose graduation (phase_advance "
-    "to='work') citing the streak — and on graduation YOU demote this "
+    "to='work' — a mission-changes skill tool: load that skill the fire BEFORE, "
+    "so it's unlocked when you graduate) citing the streak — and on graduation YOU demote this "
     "trigger to a maintenance cadence (trigger_update, e.g. weekly) or "
     "delete it. Relentlessness is setup-scoped by design."
 )

@@ -25,7 +25,7 @@ from sqlalchemy import select, update
 
 from luna_sdk import PluginContext, ToolDef
 
-from . import dream, prompts, research, review, telemetry, wikibind
+from . import dream, gating, prompts, research, review, telemetry, wikibind
 from .models import Mission
 from .scopes import STAGE_LABELS
 
@@ -564,7 +564,7 @@ def register_tools(ctx: PluginContext, store: MissionStore) -> None:
         ),
     ]
     for tool_def, handler in defs:
-        ctx.tool_registry.register("plugin-curiosity", tool_def, handler)
+        gating.register_tool(ctx, tool_def, handler)
 
 
 # 0.9.7 (core 034/phase03): on claim cores the mission-first ordering is not
@@ -673,8 +673,10 @@ def prompt_fragment(
         "the go-ahead (or take it, within your autonomy rung). When a "
         "capability would let you do more — a plugin from the marketplace, a "
         "connected channel (WhatsApp, email) to reach the owner off-platform — "
-        "say so plainly: 'install X / connect me and I can do Y'. Use "
-        "mission_refine as your understanding sharpens. "
+        "say so plainly: 'install X / connect me and I can do Y'. As your "
+        "understanding sharpens, reword the mission with mission_refine "
+        "(behind the mission-changes skill — load it first; its tools "
+        "unlock next turn). "
         "STATUS LINE: the owner's pane shows one line from you, verbatim — "
         "keep it true with current_state_set (what you're doing right now, "
         "plain first-person words); refresh it whenever your focus, stage, "
