@@ -2,7 +2,7 @@
 # Keep in sync with PluginManifest in __init__.py.
 
 name = "plugin-curiosity"
-version = "0.9.6"
+version = "0.9.7"
 description = "Mission-driven curiosity: research, wiki-building, nightly dreams, proactive reflections, and a Missions pane."
 entry = "plugin_curiosity"
 sdk_version = "0"
@@ -21,6 +21,13 @@ tools or autonomy.
 Pairs with plugin-wiki (knowledge substrate), plugin-scheduler (ambient clock)
 and plugin-playbooks (action rails).
 """
+
+# 034/phase03 prompt-slot claims — the installer shows these to the owner in
+# plain words and asks consent before the plugin loads. core.drive = the
+# curiosity fragment replaces the default drive slot; core.onboarding = the
+# mission-first ordering is written into the setup checklist itself.
+[prompt]
+overrides = ["core.drive", "core.onboarding"]
 
 [requires]
 tools = 1

@@ -36,11 +36,20 @@ try:  # cores with plugin-owned panes (the 9.002 target) export it
 except ImportError:  # pragma: no cover - older core: no pane, plugin still loads
     SidebarSection = None
 
+# 0.9.7 (core 034/phase03) feature probe: cores that support prompt-slot
+# claims export CLAIMABLE_SOURCES from luna_sdk. Older cores don't — the
+# plugin then keeps its legacy append+reorder behavior.
+try:
+    from luna_sdk import CLAIMABLE_SOURCES  # noqa: F401
+    _CLAIMS_SUPPORTED = True
+except ImportError:  # pragma: no cover - older core
+    _CLAIMS_SUPPORTED = False
+
 from . import abilities, comms, goals, loops, mission, research, scopes, telemetry
 from .abilities import AbilityStore
 from .goals import GoalStore
 from .loops import LoopStore
-from .mission import MissionStore, prompt_fragment, register_tools
+from .mission import MISSION_FIRST_NOTE, MissionStore, prompt_fragment, register_tools
 from .models import ALL_TABLES, Flag, apply_additive_migrations
 from .scopes import ScopeStore
 from .telemetry import HeartbeatStore
@@ -351,10 +360,20 @@ def schedule_on_load_work(
     _onload["task"] = loop.create_task(_run())
 
 
+# 0.9.7 (core 034/phase03): declared prompt-slot claims — core.drive (the
+# curiosity fragment replaces the default drive slot) and core.onboarding
+# (mission-first ordering written into the setup checklist itself). Passed
+# only where PluginManifest knows the field, so older cores load unchanged.
+# Mirrored in luna-plugin.toml [prompt] for the install-time consent card.
+_manifest_extra: dict = {}
+if "prompt_overrides" in getattr(PluginManifest, "model_fields", {}):
+    _manifest_extra["prompt_overrides"] = ["core.drive", "core.onboarding"]
+
+
 class CuriosityPlugin(LunaPlugin):
     manifest = PluginManifest(
         name="plugin-curiosity",
-        version="0.9.6",
+        version="0.9.7",
         description=(
             "Mission-driven curiosity: research, wiki-building, nightly dreams, "
             "self-set goals, weekly mission reviews, proactive reflections, and "
@@ -376,6 +395,7 @@ class CuriosityPlugin(LunaPlugin):
             if SidebarSection is not None
             else []
         ),
+        **_manifest_extra,
     )
 
     def __init__(self) -> None:
@@ -468,14 +488,15 @@ class CuriosityPlugin(LunaPlugin):
         abilities.register_tools(ctx, self._abilities)
         comms.register_tools(ctx, self._reflections)
         telemetry.register_tools(ctx, self._heartbeats)
-        # 8.1B: prompt primacy — on cores with the prompt.assemble hook, a
-        # missionless agent gets the curiosity fragment moved ABOVE the
-        # onboarding addendum. Feature-detected: older cores simply keep the
-        # appended-fragment position.
+        # 8.1B → 0.9.7: prompt primacy. On claim cores (034/phase03) the
+        # handler OCCUPIES the claimed core.drive slot and writes the
+        # mission-first note into the claimed onboarding addendum; on older
+        # cores it falls back to the legacy append+reorder position fix.
+        # Feature-detected: cores without the hook keep the appended position.
         hooks = getattr(ctx, "hooks", None)
         if hooks is not None:
             try:
-                hooks.register("prompt.assemble", self._reorder_prompt, priority=60)
+                hooks.register("prompt.assemble", self._occupy_prompt, priority=60)
             except Exception:  # noqa: BLE001
                 log.warning("prompt.assemble registration failed", exc_info=True)
         log.info("plugin-curiosity loaded (tools=23)")
@@ -506,6 +527,43 @@ class CuriosityPlugin(LunaPlugin):
             return False
         await _flag_set(sf, DEPENDENCY_NOTICE_FLAG, key)
         return True
+
+    async def _occupy_prompt(self, hctx) -> None:
+        """prompt.assemble handler (0.9.7, core 034/phase03). On claim cores
+        the manifest claims core.drive + core.onboarding: the curiosity
+        fragment REPLACES the core drive slot (exactly one drive section, no
+        duplicate appended fragment), and while missionless the mission-first
+        ordering is prepended to the onboarding addendum itself — no 'this
+        note OVERRIDES its ordering' prose, no position hack. Older cores
+        (luna_sdk without CLAIMABLE_SOURCES) keep the legacy reorder path."""
+        if not _CLAIMS_SUPPORTED:
+            await self._reorder_prompt(hctx)
+            return
+        if self._store is None or self._missing:
+            return  # never occupy the drive slot with the paused note
+        secs = hctx.sections
+        own = [s for s in secs if getattr(s, "source", "") == "plugin-curiosity"]
+        if not own:
+            return
+        if not any(getattr(s, "source", "") == "core.drive" for s in secs):
+            # No named drive slot (owner monolith override, pre-split core):
+            # nothing to occupy — legacy position fix still applies.
+            await self._reorder_prompt(hctx)
+            return
+        frag = own[0]
+        for s in own:
+            secs.remove(s)
+        idx = next(
+            i for i, s in enumerate(secs) if getattr(s, "source", "") == "core.drive"
+        )
+        secs[idx] = frag  # swap: claimed drop of core.drive + own-source insert
+        secs[idx + 1 : idx + 1] = own[1:]
+        if (await self._store.get()) is not None:
+            return
+        for s in secs:
+            if getattr(s, "source", "") == "core.onboarding":
+                s.text = MISSION_FIRST_NOTE + "\n\n" + s.text
+                break
 
     async def _reorder_prompt(self, hctx) -> None:
         """prompt.assemble handler: while MISSIONLESS, move this plugin's own
@@ -552,4 +610,4 @@ class CuriosityPlugin(LunaPlugin):
         if mission is not None and self._scopes is not None:
             state = await self._scopes.state()
             phase = state["agent_phase"] if state else None
-        return [prompt_fragment(mission, phase)]
+        return [prompt_fragment(mission, phase, slot_mode=_CLAIMS_SUPPORTED)]

@@ -563,10 +563,32 @@ def register_tools(ctx: PluginContext, store: MissionStore) -> None:
         ctx.tool_registry.register("plugin-curiosity", tool_def, handler)
 
 
-def prompt_fragment(mission: dict[str, Any] | None, phase: str | None = None) -> str:
+# 0.9.7 (core 034/phase03): on claim cores the mission-first ordering is not
+# persuasion prose inside the fragment — it is written INTO the onboarding
+# addendum itself, via the plugin's core.onboarding claim. This is the text
+# the _occupy_prompt handler prepends to that section while missionless.
+MISSION_FIRST_NOTE = (
+    "MISSION FIRST (curiosity): before anything on this checklist, your very "
+    "FIRST question to the owner is what mission they want you to own — "
+    "before name, emoji, or any other setup question. The rest of the "
+    "checklist resumes once the mission ask is on the table; the moment a "
+    "mission lands, call mission_set in that same turn."
+)
+
+
+def prompt_fragment(
+    mission: dict[str, Any] | None,
+    phase: str | None = None,
+    slot_mode: bool = False,
+) -> str:
     """The curiosity capability note. With a mission: own it + the rails,
     plus the phase posture (9C — setup: the talented hire earning autonomy;
-    work: mastery and toolkit improvement). Without: know how to get one."""
+    work: mastery and toolkit improvement). Without: know how to get one.
+
+    slot_mode (0.9.7): True on cores that grant prompt-slot claims — the
+    fragment then OCCUPIES the core.drive slot and the checklist ordering is
+    handled by MISSION_FIRST_NOTE inside the addendum, so the missionless
+    text drops its 'this note OVERRIDES its ordering' prose."""
     rails = (
         "Action rails: schedule recurring work with the trigger_* tools (the "
         "clock is external and always-on). When you notice a repeatable action, "
@@ -585,17 +607,22 @@ def prompt_fragment(mission: dict[str, Any] | None, phase: str | None = None) ->
         # EVERY reply until a mission lands — an installed-but-missionless
         # curiosity loop is completely dark (no wiki, no research, no dreams),
         # and an owner who skipped the first ask never heard about it again.
-        return (
-            "Curiosity: you have no active mission yet — getting one is your top "
-            "priority, and it is critical: without a mission your whole "
-            "curiosity loop stays dark (no wiki, no daily research, no nightly "
-            "dreams, no proactive insights). If a first-run setup flow is "
+        ordering = (
+            "If a first-run setup flow is "
             "active (a SETUP STATE block appears in these instructions), this "
             "note OVERRIDES its ordering: do NOT open with the next missing "
             "checklist item — your very FIRST question to the owner is what "
             "mission they want you to own, before name, emoji, or any other "
             "setup question; the rest of the checklist resumes after the "
-            "mission ask is on the table. Until a mission is adopted, "
+            "mission ask is on the table. "
+        )
+        if slot_mode:
+            ordering = ""  # MISSION_FIRST_NOTE rides in the addendum instead
+        return (
+            "Curiosity: you have no active mission yet — getting one is your top "
+            "priority, and it is critical: without a mission your whole "
+            "curiosity loop stays dark (no wiki, no daily research, no nightly "
+            "dreams, no proactive insights). " + ordering + "Until a mission is adopted, "
             "renew the ask in EVERY reply: help with whatever the owner asked "
             "first, then urge them to give you a mission — in your own voice "
             "and personality, with fresh framing each time (a mission in life; "

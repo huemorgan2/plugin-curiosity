@@ -146,7 +146,7 @@ async def test_on_load_registers_hook_when_core_offers_it(ctx, sf, monkeypatch):
 
     p = CuriosityPlugin()
     await p.on_load(ctx)
-    assert registrations == [("prompt.assemble", p._reorder_prompt, 60)]
+    assert registrations == [("prompt.assemble", p._occupy_prompt, 60)]
 
     # older core: no hooks attribute — load must not raise
     pc._onload["loop"] = None
