@@ -122,7 +122,7 @@ async def test_charter_mirror_write_through(sctx):
 
     await call(sctx, "stage_set", stage="S3")
     assert wiki.pages["role-charter"]["body"].startswith(
-        "**Where I am: setup phase — ratified**"
+        "**Where I am: setup phase — approved**"
     )
 
     note = await call(sctx, "plan_change_note", entry="Reopened audience scope — list migrated")

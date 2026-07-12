@@ -76,7 +76,7 @@ async def test_tool_registered_auto_approve_and_working(sctx, sstore):
     assert tool_def.policy == "auto_approve"
     assert "own words" in tool_def.description
 
-    out = await call(sctx, "current_state_set", text="Onboarding — charter posted, waiting on ratification.")
+    out = await call(sctx, "current_state_set", text="Onboarding — job description shared, waiting for the owner to read and approve.")
     assert out["current_state"].startswith("Onboarding")
     err = await call(sctx, "current_state_set", text="")
     assert "error" in err

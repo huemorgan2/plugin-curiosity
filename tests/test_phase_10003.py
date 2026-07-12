@@ -426,6 +426,34 @@ async def test_charter_page_speaks_plain_words(store, sf):
         assert STAGE_LABELS[stage][0] in body
 
 
+def test_owner_surfaces_have_no_hard_words():
+    """0.9.11 — owner-visible strings use words people understand: no
+    ratify/charter/graduate/competency/'success criteria' anywhere the
+    pane renders server-built text (user-reported jargon leak)."""
+    HARD = ("ratif", "charter", "graduat", "competen", "success criteri")
+
+    from plugin_curiosity.overview import _needs_from_you, _what_next
+    from plugin_curiosity.scopes import STAGE_LABELS, _STATUS_WORD
+    from plugin_curiosity.telemetry import compute_pace
+
+    texts = [w for pair in STAGE_LABELS.values() for w in pair]
+    texts += list(_STATUS_WORD.values())
+    for n in _needs_from_you([], "S2", "setup"):
+        texts += [n["kind"], n["text"]]
+    for phase, stage in (("setup", "S2"), ("setup", "S5"), ("work", None)):
+        for item in _what_next(phase, stage, []):
+            texts += [item["title"], item["detail"]]
+    for stage, age, overdue in (("S2", 3, 0), ("S2", 5, 0), ("S1", 7, 0),
+                                ("S1", 4, 0), ("S1", 0, 0), ("S3", 1, 0)):
+        pace = compute_pace(agent_phase="setup", setup_stage=stage,
+                            stage_age_days=age, overdue_loops=overdue)
+        texts += pace["reasons"]
+    for t in texts:
+        low = t.lower()
+        for w in HARD:
+            assert w not in low, f"hard word '{w}' on an owner surface: {t!r}"
+
+
 def test_prompts_carry_the_owner_words_rule():
     from plugin_curiosity.prompts import OWNER_WORDS, WIKI_BINDING
     from plugin_curiosity.research import DAILY_RESEARCH_TARGET, HEARTBEAT_NUDGE_CONTENT

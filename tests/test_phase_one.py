@@ -51,7 +51,7 @@ def test_doctrine_on_every_setup_surface_and_only_there():
 
 def test_stage_ladder_single_sourced():
     # ONE definition of the ladder, interpolated everywhere it appears
-    assert "S3 ratified" in SETUP_STAGE_DEFS
+    assert "S3 approved" in SETUP_STAGE_DEFS
     assert "success-criteria" in SETUP_STAGE_DEFS
     for surface in (_KICKOFF_CONTENT, WEEKLY_REVIEW_TARGET,
                     prompt_fragment(MISSION, "setup")):

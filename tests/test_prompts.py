@@ -72,7 +72,7 @@ def test_weekly_titles_exact_and_branched():
     assert PHASE_CHECK in t
     assert f"title='{SETUP_WEEKLY_TITLE}'" in t
     assert f"title='{WORK_WEEKLY_TITLE}'" in t
-    assert SETUP_WEEKLY_TITLE == "Setup report — road to competency"
+    assert SETUP_WEEKLY_TITLE == "Setup report — getting ready for the job"
     assert WORK_WEEKLY_TITLE == "Work report — week in review"
     # setup branch blocks
     for block in ("Scope scoreboard", "Value vs asks", "Plan changes",
@@ -132,13 +132,17 @@ def test_prompt_budget_sanity():
     # 0.9.10 raised setup/work: the STATUS LINE rule (current_state_set —
     # the pane shows the agent's one-liner verbatim; a UI-invented sentence
     # was the alternative) rides both phase branches.
-    assert len(DAILY_RESEARCH_TARGET) < 5100
-    assert len(WEEKLY_REVIEW_TARGET) < 7900
-    assert len(_KICKOFF_CONTENT.format(statement="x", wiki_note="")) < 12500
-    assert len(prompt_fragment(MISSION, "setup")) < 9650
+    # 0.9.11 raised every surface: OWNER_WORDS grew an explicit vocabulary
+    # map (ratify→approve, charter→job description, …) — owner-reported
+    # jargon leak; the mapping IS the fix, so it rides every surface the
+    # rule rides.
+    assert len(DAILY_RESEARCH_TARGET) < 5500
+    assert len(WEEKLY_REVIEW_TARGET) < 8350
+    assert len(_KICKOFF_CONTENT.format(statement="x", wiki_note="")) < 12800
+    assert len(prompt_fragment(MISSION, "setup")) < 9950
     wiki_bound = dict(MISSION, wiki_id="grow-signups-abc123")
-    assert len(prompt_fragment(wiki_bound, "setup")) < 9850
-    assert len(prompt_fragment(wiki_bound, "work")) < 2700
+    assert len(prompt_fragment(wiki_bound, "setup")) < 10150
+    assert len(prompt_fragment(wiki_bound, "work")) < 3050
 
 
 def test_owner_words_covers_chat_and_tool_output_translation():

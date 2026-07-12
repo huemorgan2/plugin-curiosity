@@ -147,7 +147,8 @@ S0 — understand the JOB sharper than you were told:
    owner-checkable. """
     + SUCCESS_TABLE_SHAPE
     + """
-   This page is ratified WITH your charter; goals must trace to it.
+   The owner approves this page together with your job description; goals
+   must trace to it.
 
 S1 — the ladder, the inventory, first value:
 5. Derive your qualification ladder from the job description. """
@@ -166,7 +167,7 @@ S1 — the ladder, the inventory, first value:
 8. First value pass with what you already have. """
     + CANONICAL_EXAMPLE
     + """. Timebox: shallow, redirectable passes — stub/summary wiki depth
-   only, NO deep corpus until the owner ratifies this charter. value_log_add
+   only, NO deep corpus until the owner approves your job description. value_log_add
    anything real you delivered (evidence: the wiki page).
 
 S2 — goals, your own drive, and the post:
@@ -213,9 +214,9 @@ S2 — goals, your own drive, and the post:
      I'll do it" (needs owner) or "already scheduled — my heartbeat drives
      the rest" (doesn't). NEVER end on a list of suggestions for the owner
      to do.
-   Close the artifact with: "this is my job description, my charter and my
-   definition of success — all drafts; ratify them or push back now; your
-   ratification moves me to S3."
+   Close the artifact with: "this is my job description and what success
+   looks like — all drafts; please read them and approve, or push back now;
+   your approval lets me go deeper."
 """
 )
 
@@ -247,7 +248,7 @@ DAILY_RESEARCH_TARGET = (
     "2. Pick the ONE goal you can advance TODAY and advance it with a small "
     "S1-style value pass: web_search / web_fetch, record on the wiki "
     "(wiki_write/wiki_patch + wiki_cite), stub/summary depth until the "
-    "charter is ratified. scope_update the scope it grew and "
+    "owner approves the job description. scope_update the scope it grew and "
     "ability_task_set any subtask that moved, with evidence.\n"
     "3. EVENT-DRIVEN REPLAN: if today's learning changes the plan, change "
     "the plan TODAY (plan_change_note + scope_set/goal_set/ability_upsert), "

@@ -62,8 +62,8 @@ log = logging.getLogger("plugin-curiosity")
 WIKI_SHELF = (
     ("mission", "Mission hub", "the mission statement and its trailhead"),
     ("job-description", "Job description", "how Luna will do the job — her living draft"),
-    ("role-charter", "Role charter", "scopes, stage marker, plan changes"),
-    ("success-criteria", "Success criteria", "what success looks like — the scoreboard"),
+    ("role-charter", "What this job needs", "the areas Luna is getting ready in, and plan changes"),
+    ("success-criteria", "What success looks like", "the scoreboard Luna scores each week"),
     ("mission-goals", "Goals", "the dated commitments Luna scores weekly"),
     ("mission-domain", "Domain map", "what Luna has learned about the territory"),
     ("mission-open-questions", "Open questions", "what Luna knows she doesn't know"),
@@ -469,10 +469,10 @@ def _needs_from_you(
     if agent_phase == "setup" and setup_stage == "S2":
         needs.append(
             {
-                "kind": "ratify",
+                "kind": "approve",
                 "text": (
-                    "The charter and success criteria are posted and waiting "
-                    "for your ratification — reply in chat to ratify or push back."
+                    "Please read my job description and approve it — "
+                    "or reply in chat with what you'd change."
                 ),
             }
         )
@@ -502,16 +502,16 @@ def _what_next(
             items.append(
                 {
                     "kind": "stage",
-                    "title": "Graduate to work mode",
-                    "detail": "phase_advance — the owner-approved graduation gate",
+                    "title": "Start the real work",
+                    "detail": "with your OK, setup ends and the real work begins",
                 }
             )
     elif agent_phase == "work":
         items.append(
             {
                 "kind": "stage",
-                "title": "Execute the role",
-                "detail": "weekly review scores every success criterion",
+                "title": "Doing the job",
+                "detail": "a weekly report scores the week against what we agreed success looks like",
             }
         )
     for t in triggers:

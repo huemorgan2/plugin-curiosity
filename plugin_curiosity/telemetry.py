@@ -160,7 +160,7 @@ def compute_pace(
         if overdue_loops >= 2:
             reasons.append(f"{overdue_loops} loops past their nudge date")
         if setup_stage == "S2" and stage_age_days >= 5:
-            reasons.append(f"charter un-ratified for {stage_age_days} days")
+            reasons.append(f"waiting {stage_age_days} days for you to approve the job description")
         elif stage_age_days >= 7:
             reasons.append(f"{stage_age_days} days at the '{stage_word}' step")
     elif overdue_loops == 1 or stage_age_days >= 4 or (setup_stage == "S2" and stage_age_days >= 3):
@@ -168,7 +168,7 @@ def compute_pace(
         if overdue_loops == 1:
             reasons.append("1 loop past its nudge date")
         if setup_stage == "S2" and stage_age_days >= 3:
-            reasons.append(f"ratification pending {stage_age_days} days")
+            reasons.append(f"job description waiting {stage_age_days} days for your approval")
         elif stage_age_days >= 4:
             reasons.append(f"{stage_age_days} days at the '{stage_word}' step")
     elif stage_age_days <= 1 and setup_stage not in ("S0",):

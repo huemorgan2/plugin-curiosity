@@ -48,12 +48,12 @@ SETUP_STAGES = ("S0", "S1", "S2", "S3", "S4", "S5")
 # internal shorthand and never render on an owner surface; lives here, not in
 # overview.py, so the charter mirror can use it without a circular import).
 STAGE_LABELS = {
-    "S0": ("understood", "mission restated sharper, first observations recorded"),
-    "S1": ("inventoried", "scopes chartered, reachable tools verified, first value delivered"),
-    "S2": ("posted", "job description, charter, success criteria and dated goals posted to the owner"),
-    "S3": ("ratified", "the owner ratified the job description, charter and success criteria"),
-    "S4": ("validated", "one real workflow run validated end-to-end"),
-    "S5": ("wired", "live feedback signals flowing per scope"),
+    "S0": ("understood", "mission restated in my own words, first observations noted"),
+    "S1": ("mapped", "listed what the job needs, checked the tools work, delivered a first win"),
+    "S2": ("shared", "job description, what success looks like, and dated goals shared for your review"),
+    "S3": ("approved", "you read the job description and approved it"),
+    "S4": ("proven", "one real piece of work done end-to-end"),
+    "S5": ("running", "regular check-ins and feedback are flowing"),
 }
 AGENT_PHASES = ("setup", "work")
 # phase 10 materiality rule: a within-ability learning is a "refine"; a
@@ -62,7 +62,7 @@ AGENT_PHASES = ("setup", "work")
 PLAN_CHANGE_KINDS = ("refine", "role_pivot")
 
 CHARTER_SLUG = "role-charter"
-CHARTER_TITLE = "Role Charter"
+CHARTER_TITLE = "What this job needs"
 
 _KIND_LABEL = {
     "knowledge": "Knowledge",
@@ -74,6 +74,8 @@ _KIND_LABEL = {
     "routines_feedback": "Routines & feedback loops",
 }
 _STATUS_MARK = {"missing": "⬜", "in_progress": "🟡", "competent": "✅"}
+# owner-facing words for scope statuses (enum values stay internal)
+_STATUS_WORD = {"missing": "not started", "in_progress": "in progress", "competent": "ready"}
 
 
 def _utcnow() -> datetime:
@@ -316,11 +318,11 @@ def render_charter_page(
         "",
         f"Role: {state['statement']}",
         "",
-        "## Scopes",
+        "## What this job needs",
     ]
     if not scopes:
         lines.append(
-            "*No scopes chartered yet — decompose the role with scope_set "
+            "*Nothing here yet — I'm still listing what this job needs "
             "(knowledge, people, communication paths, tools & data access, "
             "workflow & approval points, playbooks, routines & feedback).*"
         )
@@ -335,7 +337,8 @@ def render_charter_page(
             lines.append(f"### {_KIND_LABEL[kind]}")
             for sc in group:
                 mark = _STATUS_MARK.get(sc["status"], "•")
-                lines.append(f"- {mark} **{sc['name']}** — {sc['status']}")
+                word = _STATUS_WORD.get(sc["status"], sc["status"])
+                lines.append(f"- {mark} **{sc['name']}** — {word}")
                 if sc["why"]:
                     lines.append(f"  - why: {sc['why']}")
                 if sc["evidence"]:
@@ -652,8 +655,8 @@ def register_tools(ctx: PluginContext, store: ScopeStore) -> None:
                 description=(
                     "Mark the furthest setup-arc stage actually reached "
                     "(S0-S5 — the ladder is defined once in your "
-                    "instructions: S2 = posted, S3 = owner RATIFIED charter "
-                    "+ job-description + success-criteria, S4 = workflow "
+                    "instructions: S2 = shared, S3 = owner APPROVED the "
+                    "job-description + success-criteria, S4 = workflow "
                     "validated, S5 = feedback signals live). S3 and above require the "
                     "owner's explicit word; regress when a learning reopens "
                     "earlier work."

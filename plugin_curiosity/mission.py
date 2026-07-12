@@ -107,9 +107,9 @@ _LEGACY_METRICS_SLUG = "mission-metrics"
 _SUCCESS_STUB_BODY = (
     "*What success looks like for the mission: {statement}*\n\n"
     "*Job expectations and what will make the owner call this successful — "
-    "drafted by the agent in kickoff S0, sharpened with the owner, RATIFIED "
-    "together with [[role-charter]] (that ratification is stage S3). Goals "
-    "must trace to a criterion on this page.*\n"
+    "drafted by the agent, sharpened with the owner, and approved by the "
+    "owner together with the job description. Goals must trace to a "
+    "criterion on this page; what the job needs lives at [[role-charter]].*\n"
 )
 
 
@@ -136,9 +136,9 @@ async def ensure_success_criteria_page(ctx: PluginContext, store: MissionStore) 
             body = legacy["body"].rstrip() + "\n\n" + body
         await wiki.upsert_page(
             SUCCESS_SLUG,
-            "Success Criteria",
+            "What success looks like",
             body,
-            summary="what success looks like — to be ratified with the charter",
+            summary="what success looks like — for the owner to read and approve",
             note="9.001B upgrade seed",
             **wk,
         )
@@ -699,8 +699,8 @@ def prompt_fragment(
             + prompts.FDE_DOCTRINE + " "
             + prompts.TALENTED_HIRE_LAW + " "
             "Corollary: work in small, redirectable increments — stub/summary "
-            "depth until the owner ratifies your charter, so a pivot never "
-            "wastes a week. "
+            "depth until the owner approves your job description, so a pivot "
+            "never wastes a week. "
             + prompts.SETUP_STAGE_DEFS + " "
             + prompts.ABILITY_CONTRACT + " "
             + prompts.LOOP_DISCIPLINE + " "

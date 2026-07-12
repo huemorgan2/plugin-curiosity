@@ -208,7 +208,7 @@ function renderGaps(o) {
           (sc.evidence ? `<span class="ev">${esc(sc.evidence)}</span>` : '') + `</div>`
         ).join('') + `</div>`
       ).join('')
-    : '<div class="muted">No scopes chartered yet — they arrive as Luna inventories what competent means for this role.</div>';
+    : '<div class="muted">Nothing listed yet — this fills in as Luna works out what the job takes.</div>';
 }
 
 function renderNext(o) {

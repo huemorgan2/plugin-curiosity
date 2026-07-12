@@ -509,7 +509,7 @@ async def test_overview_contract(sf, ctx, store):
     assert o["sentiment"] == "positive"  # streak 2, no wobbles
     # needs-from-you: the owner question + the S2 ratify CTA
     kinds = [n["kind"] for n in o["needs_from_you"]]
-    assert "question" in kinds and "ratify" in kinds
+    assert "question" in kinds and "approve" in kinds
     # wiki shelf lists all 10 slugs (10.001 adds job-description) and
     # tolerates missing pages
     assert len(o["wiki_shelf"]) == 10
