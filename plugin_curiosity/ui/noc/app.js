@@ -90,6 +90,7 @@ function dateOf(iso) { return iso ? String(iso).slice(0, 10) : ''; }
 
 function render() {
   const o = DATA;
+  show('loading', false);
   if (o.blocked) { renderBlocked(o.blocked); return; }
   if (!o.mission) { show('blocked', false); show('app', false); show('empty', true); return; }
   show('blocked', false); show('empty', false); show('app', true);
@@ -281,6 +282,7 @@ async function load() {
     render();
   } catch (err) {
     if (!DATA) {
+      show('loading', false);
       show('empty', true);
       $('empty').querySelector('.blocked-lead').textContent =
         `Could not reach the agent (${err.message}). Retrying…`;

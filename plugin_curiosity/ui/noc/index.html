@@ -7,6 +7,12 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+  <!-- First paint: visible until the first overview answer replaces it. -->
+  <div id="loading" class="loading">
+    <div class="spinner" aria-hidden="true"></div>
+    <div class="loading-text">Loading dashboard…</div>
+  </div>
+
   <!-- Blocked screen: a hard dependency is missing. -->
   <div id="blocked" class="blocked hidden">
     <div class="blocked-card">

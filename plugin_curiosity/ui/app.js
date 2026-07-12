@@ -110,6 +110,7 @@ function ago(iso) {
 
 function render() {
   const o = DATA;
+  show('loading', false);
   if (o.blocked) { renderBlocked(o.blocked); return; }
   if (!o.mission) { show('blocked', false); show('app', false); show('empty', true); return; }
   show('blocked', false); show('empty', false); show('app', true);
@@ -364,6 +365,7 @@ async function load() {
     // First paint with no data: show the empty shell rather than a spinner
     // forever; subsequent polls recover silently.
     if (!DATA) {
+      show('loading', false);
       show('empty', true);
       $('empty').querySelector('.blocked-lead').textContent =
         `Could not reach the agent (${err.message}). Retrying…`;
