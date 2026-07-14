@@ -1,0 +1,376 @@
+"""10.006 acting-on-feedback (0.9.14): the reasons ledger, feedback debts,
+the design map, the mission gate, and the prompt contracts that force
+feedback to produce structural change instead of empathy."""
+
+from __future__ import annotations
+
+import pytest
+import pytest_asyncio
+
+
+@pytest_asyncio.fixture
+async def fstore(sf, store):
+    from plugin_curiosity.feedback import FeedbackStore
+
+    await store.set("own the weekly newsletter end to end")
+    return FeedbackStore(sf)
+
+
+@pytest.fixture
+def fctx(ctx, fstore):
+    from plugin_curiosity.feedback import register_tools
+
+    register_tools(ctx, fstore)
+    return ctx
+
+
+async def call(ctx, tool, **kw):
+    return await ctx.tool_registry.registered[tool][1](**kw)
+
+
+# -- decisions ledger ---------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_decision_round_trip_and_reconcile(fstore):
+    d = await fstore.decision_add(
+        "always list exactly what actions you took",
+        why="wants to audit my work",
+        lives_in="daily report format",
+        source="instruction",
+    )
+    assert d["status"] == "active"
+    demoted = await fstore.decision_restate(
+        d["id"], "demoted", "kept, moved to the bottom of the report"
+    )
+    assert demoted["status"] == "demoted"
+    assert "bottom" in demoted["status_note"]
+    ledger = await fstore.decision_list()
+    assert len(ledger) == 1 and ledger[0]["status"] == "demoted"
+
+
+@pytest.mark.asyncio
+async def test_decision_requires_ask_and_valid_source(fstore):
+    with pytest.raises(ValueError):
+        await fstore.decision_add("   ")
+    with pytest.raises(ValueError):
+        await fstore.decision_add("do x", source="rumor")
+
+
+@pytest.mark.asyncio
+async def test_restate_requires_note(fstore):
+    d = await fstore.decision_add("do x")
+    with pytest.raises(ValueError):
+        await fstore.decision_restate(d["id"], "demoted", "  ")
+    with pytest.raises(LookupError):
+        await fstore.decision_restate(
+            "00000000-0000-0000-0000-000000000000", "demoted", "note"
+        )
+
+
+# -- feedback debts -----------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_feedback_without_changed_refs_is_a_debt(fstore):
+    f = await fstore.feedback_add("your report is shit", diagnosis="report format")
+    assert f["acted"] is False
+    assert await fstore.unactioned_count() == 1
+    closed = await fstore.feedback_act(
+        f["id"], "playbook daily-report v2", reconciled="kept actions list at bottom"
+    )
+    assert closed["acted"] is True
+    assert await fstore.unactioned_count() == 0
+
+
+@pytest.mark.asyncio
+async def test_feedback_with_changed_refs_is_closed_at_birth(fstore):
+    f = await fstore.feedback_add(
+        "lead with progress", changed_refs="trigger daily-report prompt"
+    )
+    assert f["acted"] is True
+    assert await fstore.unactioned_count() == 0
+
+
+@pytest.mark.asyncio
+async def test_feedback_act_requires_refs(fstore):
+    f = await fstore.feedback_add("too long")
+    with pytest.raises(ValueError):
+        await fstore.feedback_act(f["id"], "   ")
+
+
+# -- tools + steering ---------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_tools_registered_auto_approve(fctx):
+    names = {
+        "decision_log", "decision_restate", "decision_list",
+        "feedback_note", "feedback_act", "feedback_list", "design_map",
+    }
+    assert names <= set(fctx.tool_registry.registered)
+    for n in names:
+        td = fctx.tool_registry.registered[n][0]
+        assert td.policy == "auto_approve" and td.risk_level == "low"
+
+
+@pytest.mark.asyncio
+async def test_feedback_note_tool_steers_when_unacted(fctx):
+    out = await call(fctx, "feedback_note", quote="your report is shit")
+    assert "warning" in out and "same turn" in out["warning"]
+    out2 = await call(
+        fctx, "feedback_note", quote="report fixed?",
+        changed_refs="playbook daily-report v2",
+    )
+    assert "warning" not in out2
+
+
+@pytest.mark.asyncio
+async def test_feedback_list_flags_red_items(fctx):
+    await call(fctx, "feedback_note", quote="too noisy")
+    out = await call(fctx, "feedback_list", unactioned_only=True)
+    assert len(out["feedback"]) == 1
+    assert "red_items" in out
+
+
+@pytest.mark.asyncio
+async def test_tool_errors_are_dicts_not_raises(fctx):
+    assert "error" in await call(fctx, "decision_log", asked="  ")
+    assert "error" in await call(
+        fctx, "feedback_act", id="00000000-0000-0000-0000-000000000000",
+        changed_refs="x",
+    )
+
+
+# -- wiki mirror --------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_mirror_writes_owner_decisions_page(fctx):
+    from plugin_curiosity.feedback import DECISIONS_SLUG
+
+    await call(
+        fctx, "decision_log",
+        asked="always list exactly what actions you took",
+        why="wants to audit", lives_in="daily report",
+    )
+    await call(fctx, "feedback_note", quote="your report is shit")
+    wiki = fctx.provider_registry.get("wiki")
+    assert DECISIONS_SLUG in wiki.pages
+    body = wiki.pages[DECISIONS_SLUG]["body"]
+    assert "always list exactly what actions you took" in body
+    assert "wants to audit" in body
+    assert "NOT ACTED ON YET" in body
+
+
+@pytest.mark.asyncio
+async def test_mirror_degrades_without_wiki(sf, fstore):
+    import types
+
+    from plugin_curiosity import feedback as fb
+
+    class _NoWiki:
+        def get(self, name):
+            raise KeyError(name)
+
+    class _Reg:
+        def __init__(self):
+            self.registered = {}
+
+        def register(self, plugin, tool_def, handler):
+            self.registered[tool_def.name] = (tool_def, handler)
+
+    c = types.SimpleNamespace(
+        tool_registry=_Reg(),
+        provider_registry=_NoWiki(),
+        db_session_factory=sf,
+    )
+    fb.register_tools(c, fstore)
+    out = await c.tool_registry.registered["decision_log"][1](asked="do x")
+    assert out["decision"]["asked"] == "do x"
+    assert "unavailable" in out["wiki_mirror"]
+
+
+def test_render_decisions_page_shape():
+    from plugin_curiosity.feedback import render_decisions_page
+
+    body = render_decisions_page(
+        [{
+            "id": "1", "asked": "list | actions", "why": "audit",
+            "lives_in": "report", "source": "instruction",
+            "status": "demoted", "status_note": "moved to bottom",
+            "created_at": "2026-07-14T00:00:00",
+        }],
+        [{
+            "id": "2", "quote": "report is shit", "diagnosis": "",
+            "changed_refs": "playbook v2", "reconciled": "kept actions at bottom",
+            "acted": True, "created_at": "2026-07-14T00:00:00",
+        }],
+    )
+    assert "| 2026-07-14 | list / actions |" in body  # pipes escaped
+    assert "demoted — moved to bottom" in body
+    assert "changed: playbook v2" in body
+    assert "reconciled: kept actions at bottom" in body
+
+
+# -- design map ---------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_design_map_surfaces(fctx):
+    out = await call(fctx, "design_map")
+    # sqlite test DB has no core identity / playbooks tables — best-effort
+    # reporting, never a raise
+    assert "identity" in out and "mission" in out
+    assert out["playbooks"] == "playbooks plugin not installed"
+    assert isinstance(out["triggers"], dict)  # fake scheduler answered
+    assert out["feedback_unactioned"] == 0
+    assert "owner-decisions" in out["wiki_pages"]
+
+
+@pytest.mark.asyncio
+async def test_design_map_counts_debts(fctx):
+    await call(fctx, "feedback_note", quote="too slow")
+    out = await call(fctx, "design_map")
+    assert out["feedback_unactioned"] == 1
+
+
+# -- mission gate (0.9.14 structural blitz fix) -------------------------------
+
+_GATED_ADDENDUM = (
+    "old frame\n\nHow to onboard yourself:\n\n  1. old flow\n\n"
+    "WHAT EACH FIELD MEANS:\nname — what the owner calls you.\n\n"
+    "SETUP STATE (you are not fully set up yet):\n\n"
+    "Missing — required:\n  ☐ name\n  ☐ emoji\n  ☐ mission\n  ☐ persona\n\n"
+    "Missing — optional:\n  ☐ owner_name\n\n"
+    "Tools: `update_self(field, value)`, `complete_setup()`."
+)
+
+_POST_MISSION_ADDENDUM = (
+    "old frame\n\n"
+    "SETUP STATE (you are not fully set up yet):\n\n"
+    "Saved:\n  ✓ mission: own the newsletter\n\n"
+    "Missing — required:\n  ☐ name\n  ☐ emoji\n  ☐ persona\n\n"
+    "Tools: `update_self(field, value)`, `complete_setup()`."
+)
+
+
+def test_gate_hides_checklist_while_mission_missing():
+    from plugin_curiosity.mission import (
+        MISSION_GATE_FLOW,
+        rewrite_onboarding_addendum,
+    )
+
+    out = rewrite_onboarding_addendum(_GATED_ADDENDUM)
+    assert out.startswith(MISSION_GATE_FLOW)
+    # nothing to blitz: other fields and complete_setup absent
+    assert "☐ name" not in out
+    assert "☐ emoji" not in out
+    assert "☐ persona" not in out
+    assert "complete_setup" not in out.split(MISSION_GATE_FLOW)[1]
+    assert "☐ mission" in out
+    assert "mission_set" in out
+
+
+def test_gate_keeps_saved_items_visible():
+    from plugin_curiosity.mission import rewrite_onboarding_addendum
+
+    addendum = _GATED_ADDENDUM.replace(
+        "Missing — required:", "Saved:\n  ✓ owner_name: Roy\n\nMissing — required:"
+    )
+    out = rewrite_onboarding_addendum(addendum)
+    assert "✓ owner_name: Roy" in out
+
+
+def test_full_flow_returns_once_mission_saved():
+    from plugin_curiosity.mission import (
+        MISSION_FIRST_FLOW,
+        MISSION_GATE_FLOW,
+        rewrite_onboarding_addendum,
+    )
+
+    out = rewrite_onboarding_addendum(_POST_MISSION_ADDENDUM)
+    assert out.startswith(MISSION_FIRST_FLOW)
+    assert MISSION_GATE_FLOW not in out
+    # state block verbatim: checklist + tools line back
+    assert "☐ name" in out and "complete_setup" in out
+
+
+def test_gate_flow_keeps_the_pinned_mechanics():
+    from plugin_curiosity.mission import MISSION_GATE_FLOW
+
+    assert "mission_set" in MISSION_GATE_FLOW
+    assert "update_self(field='mission', value=...)" in MISSION_GATE_FLOW
+    assert "FIRST question" in MISSION_GATE_FLOW
+    assert "never from you" in MISSION_GATE_FLOW  # name comes from the owner
+
+
+# -- prompt contracts ---------------------------------------------------------
+
+
+def test_feedback_contract_in_both_phases():
+    from plugin_curiosity import prompts
+    from plugin_curiosity.mission import prompt_fragment
+
+    m = {
+        "statement": "own the newsletter", "autonomy_rung": 1,
+        "risk_ceiling": "low", "wiki_id": None,
+    }
+    for phase in ("setup", "work"):
+        frag = prompt_fragment(m, phase=phase)
+        assert prompts.FEEDBACK_CONTRACT in frag
+        assert prompts.DECISION_LEDGER in frag
+        assert prompts.PROACTIVE_RULE in frag
+
+
+def test_contract_wording_is_mechanical():
+    from plugin_curiosity.prompts import (
+        DECISION_LEDGER,
+        FEEDBACK_CONTRACT,
+        PROACTIVE_RULE,
+    )
+
+    for phrase in (
+        "design_map", "decision_list", "decision_restate", "feedback_note",
+        "SAME TURN", "playbook_edit",
+    ):
+        assert phrase in FEEDBACK_CONTRACT
+    assert "decision_log" in DECISION_LEDGER
+    assert "never ask the owner" in PROACTIVE_RULE.lower()
+
+
+def test_heartbeat_and_review_surface_feedback_debts():
+    from plugin_curiosity.prompts import HEARTBEAT_CONTRACT
+    from plugin_curiosity.review import WEEKLY_REVIEW_TARGET
+
+    assert "feedback_list(unactioned_only=true)" in HEARTBEAT_CONTRACT
+    assert "feedback_list(unactioned_only=true)" in WEEKLY_REVIEW_TARGET
+    assert "feedback_act" in WEEKLY_REVIEW_TARGET
+
+
+def test_owner_decisions_is_a_seeded_stub():
+    from plugin_curiosity.mission import _STUB_SLUGS
+
+    assert "owner-decisions" in _STUB_SLUGS
+
+
+def test_setup_flow_carries_decision_log_duty():
+    from plugin_curiosity.mission import MISSION_FIRST_FLOW
+
+    assert "decision_log" in MISSION_FIRST_FLOW
+
+
+def test_version_bumped_everywhere():
+    import pathlib
+    import tomllib
+
+    import plugin_curiosity as pc
+
+    assert pc.CuriosityPlugin.manifest.version == "0.9.14"
+    root = pathlib.Path(pc.__file__).parents[1]
+    assert tomllib.loads((root / "pyproject.toml").read_text())["project"][
+        "version"
+    ] == "0.9.14"
+    assert tomllib.loads(
+        (root / "plugin_curiosity" / "luna-plugin.toml").read_text()
+    )["version"] == "0.9.14"

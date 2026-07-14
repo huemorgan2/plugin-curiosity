@@ -96,6 +96,10 @@ _STUB_SLUGS = (
     # every loop/value mutation)
     "open-loops",
     "value-log",
+    # 10.006: the reasons ledger — every owner instruction with its why and
+    # where it lives (feedback.py rebuilds it on every decision/feedback
+    # mutation); the audit trail feedback gets reconciled against.
+    "owner-decisions",
 )
 
 
@@ -624,7 +628,11 @@ How to onboard yourself (mission first):
      the name you just learned. Save every answer with
      `update_self(field, value)` BEFORE you respond, and react in your
      own voice — never just "saved." Never re-ask something already
-     saved.
+     saved. When an answer carries a lasting instruction about HOW you
+     should work (reporting style, what to include, priorities), also
+     record it with `decision_log(asked, why, lives_in)` — their words
+     and their why go into your reasons ledger so future feedback gets
+     reconciled against them instead of silently overwriting them.
 
   4. If the owner detours, briefly oblige, then steer back to setup in
      the same message. If they won't give a mission yet, accept it
@@ -657,18 +665,90 @@ decision_authority — when ambiguous: ask, decide cautiously, or decide
                      boldly. Optional."""
 
 
+# 0.9.14: the mission GATE. The 10.005 dojo caught the agent blitzing the
+# whole checklist inside the mission turn (self-picked name, persona,
+# complete_setup) despite the prohibition — a ban on visible options is
+# rhetorical, and rhetoric loses. The structural fix: while the mission is
+# missing, the other checklist items DO NOT EXIST in the prompt — the
+# addendum shows a mission-only stage, so there is nothing to blitz.
+MISSION_GATE_FLOW = """\
+You're a brand-new agent meeting your owner for the first time. You are
+not set up yet, and setup is gated on ONE thing: your MISSION — the work
+the owner wants you to own. Nothing else about you can be set until it
+is saved.
+
+How this stage works:
+
+  1. Your very FIRST question — before anything else — is what mission
+     the owner wants you to own: the work they most want off their
+     plate, what they'd hand a sharp new hire. One question, a
+     one-phrase why, warm and brief, in your own voice.
+
+  2. The moment the owner's message contains a mission (stated or
+     agreed), that turn has a FIXED shape. In order:
+        a. call `mission_set(statement=...)`  — FIRST action, before
+           any reply text
+        b. call `update_self(field='mission', value=...)`
+        c. only now write your reply: react in your own voice, then ask
+           what NAME the owner wants to give you — the name always
+           comes from the owner, never from you.
+     HARD RULES for this turn: replying without BOTH calls is
+     acting-vs-claiming — "I'll build myself around this" with no calls
+     means nothing was saved, and until `mission_set` runs your whole
+     curiosity loop (wiki, research, dreams) stays dark. The two calls
+     plus the name question are the WHOLE turn: `complete_setup` is not
+     available at this stage, and there are no other setup fields yet —
+     the rest of the checklist appears only after the mission is saved.
+     No plugin installs, no persona writing, no mission work yet.
+
+  3. If the owner detours, briefly oblige, then renew the mission ask
+     with fresh framing in the same message — it is the one gate
+     between them and a working agent."""
+
+
+def _mission_gate_state_block(state_block: str) -> str:
+    """The reduced SETUP STATE block for the gate stage: saved items stay
+    visible (never re-ask), but the missing lists collapse to the mission
+    alone and the tools line names only the two mission saves."""
+    lines = state_block.splitlines()
+    header = lines[0] if lines else SETUP_STATE_HEADER + ":"
+    saved = [ln for ln in lines if ln.strip().startswith("✓")]
+    out = [header, ""]
+    if saved:
+        out.append("Saved:")
+        out.extend(saved)
+        out.append("")
+    out += [
+        "Missing — required:",
+        "  ☐ mission",
+        "",
+        "The rest of the setup checklist is locked until the mission is",
+        "saved; it appears here the moment it is.",
+        "",
+        "Tools: `mission_set(statement=...)`, then "
+        "`update_self(field='mission', value=...)`.",
+    ]
+    return "\n".join(out)
+
+
 def rewrite_onboarding_addendum(text: str) -> str | None:
     """Mission-first rewrite of the claimed core.onboarding section (0.9.13).
 
-    Replaces the frame/flow/field-meaning prose with MISSION_FIRST_FLOW while
-    keeping the live SETUP STATE block verbatim (everything from its header
-    on). Returns None when the header is absent — an unfamiliar addendum
+    Replaces the frame/flow/field-meaning prose while keeping the live SETUP
+    STATE block (everything from its header on). 0.9.14: while the mission is
+    still missing the rewrite is the mission GATE — a mission-only stage with
+    the rest of the checklist absent from the prompt entirely; once the
+    mission is saved the full MISSION_FIRST_FLOW + verbatim state block
+    returns. Returns None when the header is absent — an unfamiliar addendum
     shape the caller handles with the conservative MISSION_FIRST_NOTE
     prepend instead."""
     idx = text.find(SETUP_STATE_HEADER)
     if idx < 0:
         return None
-    return MISSION_FIRST_FLOW + "\n\n" + text[idx:]
+    state_block = text[idx:]
+    if "☐ mission" in state_block:
+        return MISSION_GATE_FLOW + "\n\n" + _mission_gate_state_block(state_block)
+    return MISSION_FIRST_FLOW + "\n\n" + state_block
 
 
 def prompt_fragment(
@@ -772,6 +852,11 @@ def prompt_fragment(
         "keep it true with current_state_set (what you're doing right now, "
         "plain first-person words); refresh it whenever your focus, stage, "
         "or phase changes. "
+        # 0.9.14 (10.006): both phases — feedback produces change, decisions
+        # get a ledger, and the default is to act, not ask.
+        + prompts.FEEDBACK_CONTRACT + " "
+        + prompts.DECISION_LEDGER + " "
+        + prompts.PROACTIVE_RULE + " "
     )
     if phase == "work":
         posture = (

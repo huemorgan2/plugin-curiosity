@@ -52,6 +52,7 @@ def _bare_ctx(sf, *, wiki=True, scheduler=True):
 def _plugin(sf) -> CuriosityPlugin:
     """A plugin with stores wired but on_load never run (no engine needed)."""
     from plugin_curiosity.comms import ReflectionLog
+    from plugin_curiosity.feedback import FeedbackStore
     from plugin_curiosity.goals import GoalStore
     from plugin_curiosity.loops import LoopStore
     from plugin_curiosity.mission import MissionStore
@@ -64,6 +65,7 @@ def _plugin(sf) -> CuriosityPlugin:
     p._scopes = ScopeStore(sf)
     p._loops = LoopStore(sf)
     p._heartbeats = HeartbeatStore(sf)
+    p._feedback = FeedbackStore(sf)
     p._reflections = ReflectionLog(sf)
     return p
 

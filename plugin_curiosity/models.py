@@ -293,6 +293,59 @@ class HeartbeatReport(Base):
     )
 
 
+class OwnerDecision(Base):
+    """One owner instruction/decision with its WHY (10.006).
+
+    The reasons ledger: setup answers, standing instructions ("always list
+    your exact actions"), and feedback-driven changes all land here so the
+    agent can reconcile new feedback against what the owner asked before —
+    keep, demote, or replace, out loud. Mirrored to [[owner-decisions]].
+    `status`: "active" | "demoted" | "replaced".
+    """
+
+    __tablename__ = "curiosity_owner_decisions"
+
+    id: Mapped[_uuid.UUID] = mapped_column(UUID(), primary_key=True, default=_uuid.uuid4)
+    mission_id: Mapped[_uuid.UUID | None] = mapped_column(UUID(), nullable=True, index=True)
+    asked: Mapped[str] = mapped_column(Text, nullable=False)
+    why: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    lives_in: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    source: Mapped[str] = mapped_column(String(16), default="instruction", nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="active", nullable=False, index=True)
+    status_note: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+
+class FeedbackNote(Base):
+    """One piece of owner feedback on the agent's behavior/output (10.006).
+
+    `changed_refs` is the point: what the agent actually changed in response
+    — playbook name+version, identity field, trigger name, wiki slug. Empty
+    changed_refs = feedback acknowledged but not acted on; the heartbeat and
+    weekly review surface those as red items until the agent closes them.
+    `reconciled` records how a contradiction with an earlier owner decision
+    was resolved (keep / demote / replace), in owner words.
+    """
+
+    __tablename__ = "curiosity_feedback"
+
+    id: Mapped[_uuid.UUID] = mapped_column(UUID(), primary_key=True, default=_uuid.uuid4)
+    mission_id: Mapped[_uuid.UUID | None] = mapped_column(UUID(), nullable=True, index=True)
+    quote: Mapped[str] = mapped_column(Text, nullable=False)
+    diagnosis: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    changed_refs: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    reconciled: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    acted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class Flag(Base):
     """Tiny key/value state register (phase 8.1: `install_kickoff_sent`)."""
 
@@ -316,6 +369,8 @@ ALL_TABLES = (
     Loop.__table__,
     ValueEntry.__table__,
     HeartbeatReport.__table__,
+    OwnerDecision.__table__,
+    FeedbackNote.__table__,
     Flag.__table__,
 )
 

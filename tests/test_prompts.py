@@ -141,13 +141,18 @@ def test_prompt_budget_sanity():
     # "load the skill the turn before" (tools unlock next turn) — the
     # load-ahead warning is the price of pulling three schemas out of EVERY
     # turn's prompt, a large net context win.
+    # 0.9.14 (10.006) raised every fragment: the feedback contract (owner
+    # criticism → same-turn structural change), the reasons-ledger rule and
+    # the proactivity rule ride BOTH phase branches — correctness contracts;
+    # the alternative was feedback answered with empathy and an untouched
+    # playbook. The weekly review gained the feedback-debt red check.
     assert len(DAILY_RESEARCH_TARGET) < 5500
-    assert len(WEEKLY_REVIEW_TARGET) < 8400
-    assert len(_KICKOFF_CONTENT.format(statement="x", wiki_note="")) < 12800
-    assert len(prompt_fragment(MISSION, "setup")) < 10150
+    assert len(WEEKLY_REVIEW_TARGET) < 8800
+    assert len(_KICKOFF_CONTENT.format(statement="x", wiki_note="")) < 13200
+    assert len(prompt_fragment(MISSION, "setup")) < 13100
     wiki_bound = dict(MISSION, wiki_id="grow-signups-abc123")
-    assert len(prompt_fragment(wiki_bound, "setup")) < 10350
-    assert len(prompt_fragment(wiki_bound, "work")) < 3150
+    assert len(prompt_fragment(wiki_bound, "setup")) < 13300
+    assert len(prompt_fragment(wiki_bound, "work")) < 6100
 
 
 def test_owner_words_covers_chat_and_tool_output_translation():

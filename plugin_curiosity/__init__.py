@@ -50,8 +50,9 @@ try:
 except ImportError:  # pragma: no cover - older core
     _CLAIMS_SUPPORTED = False
 
-from . import abilities, comms, gating, goals, loops, mission, research, scopes, telemetry
+from . import abilities, comms, feedback, gating, goals, loops, mission, research, scopes, telemetry
 from .abilities import AbilityStore
+from .feedback import FeedbackStore
 from .goals import GoalStore
 from .loops import LoopStore
 from .mission import (
@@ -410,7 +411,7 @@ if "prompt_overrides" in getattr(PluginManifest, "model_fields", {}):
 class CuriosityPlugin(LunaPlugin):
     manifest = PluginManifest(
         name="plugin-curiosity",
-        version="0.9.13",
+        version="0.9.14",
         description=(
             "Mission-driven curiosity: research, wiki-building, nightly dreams, "
             "self-set goals, weekly mission reviews, proactive reflections, and "
@@ -444,6 +445,7 @@ class CuriosityPlugin(LunaPlugin):
         self._loops: LoopStore | None = None
         self._abilities: AbilityStore | None = None
         self._heartbeats: HeartbeatStore | None = None
+        self._feedback: FeedbackStore | None = None
         self._reflections: comms.ReflectionLog | None = None
         self._activated = False
         # None = gate not yet evaluated; [] = satisfied; [names] = blocked
@@ -463,6 +465,7 @@ class CuriosityPlugin(LunaPlugin):
         self._loops = LoopStore(ctx.db_session_factory)
         self._abilities = AbilityStore(ctx.db_session_factory)
         self._heartbeats = HeartbeatStore(ctx.db_session_factory)
+        self._feedback = FeedbackStore(ctx.db_session_factory)
         self._reflections = comms.ReflectionLog(ctx.db_session_factory)
         self._ctx = ctx
         _plugin = self
@@ -527,6 +530,7 @@ class CuriosityPlugin(LunaPlugin):
         abilities.register_tools(ctx, self._abilities)
         comms.register_tools(ctx, self._reflections)
         telemetry.register_tools(ctx, self._heartbeats)
+        feedback.register_tools(ctx, self._feedback)
         self._register_skill(ctx)
         # 8.1B → 0.9.7: prompt primacy. On claim cores (034/phase03) the
         # handler OCCUPIES the claimed core.drive slot and writes the
