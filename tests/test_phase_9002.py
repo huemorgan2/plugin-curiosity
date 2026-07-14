@@ -86,7 +86,10 @@ def test_manifest_sidebar_section():
     secs = CuriosityPlugin.manifest.sidebar_sections
     assert len(secs) == 1  # 0.9.5: one pane; the ops wall is a tab inside it
     assert secs[0].id == "missions"
-    assert secs[0].label == "Missions"
+    # 0.9.13: owner-facing label is the plugin's own name, placed right under
+    # Chat (10), ahead of Playbooks (25)
+    assert secs[0].label == "Curiosity"
+    assert secs[0].sort_order == 15
 
 
 def test_ui_assets_ship_with_the_package():

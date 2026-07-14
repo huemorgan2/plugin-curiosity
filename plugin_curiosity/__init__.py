@@ -427,8 +427,10 @@ class CuriosityPlugin(LunaPlugin):
         # the Missions pane as its second tab ("Operational dashboard"),
         # embedded from ui/noc/ — the noc/ directory keeps its URL so old
         # deep links and the embed share one document.
+        # 0.9.13: labeled "Curiosity", right under Chat (10) and ahead of
+        # Playbooks (25) — the mission is the agent's core.
         sidebar_sections=(
-            [SidebarSection(id="missions", label="Missions", icon="target", sort_order=45)]
+            [SidebarSection(id="missions", label="Curiosity", icon="target", sort_order=15)]
             if SidebarSection is not None
             else []
         ),
