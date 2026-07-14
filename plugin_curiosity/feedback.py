@@ -471,9 +471,12 @@ def register_tools(ctx: PluginContext, store: FeedbackStore) -> None:
                     "words in `quote`, your diagnosis of which artifact "
                     "produced the behavior, and `changed_refs` naming what "
                     "you changed (playbook name+version, identity field, "
-                    "trigger, wiki slug). Feedback with empty changed_refs "
-                    "is a debt: it stays red on every heartbeat and weekly "
-                    "review until feedback_act closes it."
+                    "trigger, wiki slug). Call design_map BEFORE this — the "
+                    "criticized behavior usually lives in more than one "
+                    "artifact, and changed_refs should name every one you "
+                    "touched. Feedback with empty changed_refs is a debt: "
+                    "it stays red on every heartbeat and weekly review "
+                    "until feedback_act closes it."
                 ),
                 parameters={
                     "type": "object",
@@ -556,9 +559,11 @@ def register_tools(ctx: PluginContext, store: FeedbackStore) -> None:
                     "Your whole behavior surface in one call: identity + "
                     "personality values, mission, behavior-steering wiki "
                     "pages, playbooks, triggers, and open feedback debts. "
-                    "Call this FIRST when the owner criticizes your "
-                    "behavior/output — the artifact that produced it is on "
-                    "this map."
+                    "MANDATORY first call in any turn where the owner "
+                    "criticizes your behavior or output — even when the "
+                    "fix looks obvious, the behavior usually lives in more "
+                    "than one artifact, and this map is how you find them "
+                    "all before feedback_note."
                 ),
                 parameters={"type": "object", "properties": {}},
                 policy="auto_approve",

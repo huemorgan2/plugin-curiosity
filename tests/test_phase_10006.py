@@ -115,6 +115,17 @@ async def test_tools_registered_auto_approve(fctx):
 
 
 @pytest.mark.asyncio
+async def test_audit_duty_lives_in_the_tool_descriptions(fctx):
+    # Dojo runs 2+4: the audit call was skipped when only the contract prose
+    # carried it — the descriptions are what the model actually follows.
+    dm = fctx.tool_registry.registered["design_map"][0].description
+    assert "MANDATORY first call" in dm
+    assert "criticizes your behavior" in dm
+    fn = fctx.tool_registry.registered["feedback_note"][0].description
+    assert "design_map BEFORE" in fn
+
+
+@pytest.mark.asyncio
 async def test_feedback_note_tool_steers_when_unacted(fctx):
     out = await call(fctx, "feedback_note", quote="your report is shit")
     assert "warning" in out and "same turn" in out["warning"]
