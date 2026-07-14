@@ -126,9 +126,26 @@ async def test_audit_duty_lives_in_the_tool_descriptions(fctx):
 
 
 @pytest.mark.asyncio
+async def test_feedback_note_refuses_without_fresh_audit(fctx):
+    # Dojo runs 2/4/5: design_map skipped three times — prose and
+    # descriptions both lost, so the handler enforces the audit itself.
+    out = await call(fctx, "feedback_note", quote="your report is shit")
+    assert "audit first" in out["error"]
+    assert "design_map" in out["hint"] and "decision_restate" in out["hint"]
+    await call(fctx, "design_map")
+    out2 = await call(fctx, "feedback_note", quote="your report is shit")
+    assert "error" not in out2
+    # every record spends the audit — the next one needs a fresh map
+    out3 = await call(fctx, "feedback_note", quote="still too long")
+    assert "audit first" in out3["error"]
+
+
+@pytest.mark.asyncio
 async def test_feedback_note_tool_steers_when_unacted(fctx):
+    await call(fctx, "design_map")
     out = await call(fctx, "feedback_note", quote="your report is shit")
     assert "warning" in out and "same turn" in out["warning"]
+    await call(fctx, "design_map")
     out2 = await call(
         fctx, "feedback_note", quote="report fixed?",
         changed_refs="playbook daily-report v2",
@@ -138,6 +155,7 @@ async def test_feedback_note_tool_steers_when_unacted(fctx):
 
 @pytest.mark.asyncio
 async def test_feedback_list_flags_red_items(fctx):
+    await call(fctx, "design_map")
     await call(fctx, "feedback_note", quote="too noisy")
     out = await call(fctx, "feedback_list", unactioned_only=True)
     assert len(out["feedback"]) == 1
@@ -165,6 +183,7 @@ async def test_mirror_writes_owner_decisions_page(fctx):
         asked="always list exactly what actions you took",
         why="wants to audit", lives_in="daily report",
     )
+    await call(fctx, "design_map")
     await call(fctx, "feedback_note", quote="your report is shit")
     wiki = fctx.provider_registry.get("wiki")
     assert DECISIONS_SLUG in wiki.pages
@@ -237,10 +256,24 @@ async def test_design_map_surfaces(fctx):
     assert isinstance(out["triggers"], dict)  # fake scheduler answered
     assert out["feedback_unactioned"] == 0
     assert "owner-decisions" in out["wiki_pages"]
+    assert out["owner_decisions"] == "none yet"
+
+
+@pytest.mark.asyncio
+async def test_design_map_lists_owner_decisions_with_reasons(fctx):
+    await call(
+        fctx, "decision_log",
+        asked="list every action", why="wants to audit",
+    )
+    out = await call(fctx, "design_map")
+    assert out["owner_decisions"][0]["asked"] == "list every action"
+    assert out["owner_decisions"][0]["why"] == "wants to audit"
+    assert "decision_restate" in out["note"]
 
 
 @pytest.mark.asyncio
 async def test_design_map_counts_debts(fctx):
+    await call(fctx, "design_map")
     await call(fctx, "feedback_note", quote="too slow")
     out = await call(fctx, "design_map")
     assert out["feedback_unactioned"] == 1

@@ -55,7 +55,11 @@ UPDATE_SELF_DESC_OPEN = (
     "NAME and EMOJI come from the owner: ask, never invent them. PERSONA "
     "you write yourself. Required fields: agent_name, emoji, mission, "
     "persona. Optional: owner_name, owner_pronouns, first_work_target, "
-    "decision_authority."
+    "decision_authority. When the owner says they're done ('that's "
+    "everything', 'get going'), that turn STARTS by saving every still-"
+    "missing required field — write the persona yourself right then, "
+    "don't ask — then complete_setup, all BEFORE any research or job-"
+    "setup work."
 )
 
 COMPLETE_SETUP_DESC_GATED = (
@@ -67,8 +71,10 @@ COMPLETE_SETUP_DESC_OPEN = (
     "Finish first-run setup. Returns an error listing what's missing "
     "while any required field is unsaved. The owner drives the pace of "
     "the checklist — complete only when they have given you the "
-    "remaining answers. After this succeeds, your next message MUST "
-    "propose a concrete first piece of work."
+    "remaining answers. The moment they say they're done or tell you to "
+    "get going, call this in THAT turn, right after saving any missing "
+    "required fields, and only THEN start working. After this succeeds, "
+    "your next message MUST propose a concrete first piece of work."
 )
 
 _LOCKED_FIELD_ERROR = {

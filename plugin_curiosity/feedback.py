@@ -22,6 +22,7 @@ structural pieces:
 from __future__ import annotations
 
 import logging
+import time
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -310,11 +311,23 @@ async def build_design_map(ctx: PluginContext, store: FeedbackStore) -> dict[str
     except Exception as e:  # noqa: BLE001
         out["triggers"] = f"unreachable: {e}"
 
+    # standing owner decisions WITH their reasons — new feedback that
+    # contradicts one gets reconciled out loud (decision_restate), never
+    # silently overwritten (dojo run 5: the reconciliation was skipped when
+    # the ledger wasn't in front of the model at audit time)
+    try:
+        out["owner_decisions"] = await store.decision_list() or "none yet"
+    except Exception as e:  # noqa: BLE001
+        out["owner_decisions"] = f"unreachable: {e}"
+
     out["feedback_unactioned"] = await store.unactioned_count()
     out["note"] = (
         "this is your whole behavior surface — when feedback arrives, the "
         "artifact producing the criticized behavior is on this map; find it "
-        "and change it, then record it (feedback_note / feedback_act)"
+        "and change it, then record it (feedback_note / feedback_act). If "
+        "the feedback contradicts an owner decision above, reconcile it "
+        "with decision_restate and tell the owner what you kept and where "
+        "it moved."
     )
     return out
 
@@ -322,6 +335,16 @@ async def build_design_map(ctx: PluginContext, store: FeedbackStore) -> dict[str
 # -- tools --------------------------------------------------------------------
 
 def register_tools(ctx: PluginContext, store: FeedbackStore) -> None:
+    # 0.9.14, dojo runs 2/4/5: the design_map audit was skipped in the
+    # feedback turn three times — contract prose and tool descriptions both
+    # lost. Same lesson as the mission gate: a flow the model must follow
+    # lives in the tool layer. feedback_note refuses until design_map has
+    # run recently, and every record spends the audit (the next one needs a
+    # fresh map). The window keeps "recently" within the same turn without
+    # needing turn identity.
+    _AUDIT_WINDOW_S = 600.0
+    audit_state = {"at": float("-inf")}
+
     async def _decision_log(
         asked: str, why: str = "", lives_in: str = "", source: str = "instruction"
     ) -> dict[str, Any]:
@@ -344,12 +367,28 @@ def register_tools(ctx: PluginContext, store: FeedbackStore) -> None:
     async def _feedback_note(
         quote: str, diagnosis: str = "", changed_refs: str = "", reconciled: str = ""
     ) -> dict[str, Any]:
+        if time.monotonic() - audit_state["at"] > _AUDIT_WINDOW_S:
+            return {
+                "error": "not recorded — audit first",
+                "hint": (
+                    "call design_map before recording: the criticized "
+                    "behavior usually lives in more than one artifact, and "
+                    "the map shows them all — including standing owner "
+                    "decisions this feedback may contradict (reconcile those "
+                    "with decision_restate and say so out loud). Then change "
+                    "what's implicated and re-record with changed_refs "
+                    "naming every change."
+                ),
+            }
         try:
             f = await store.feedback_add(
                 quote, diagnosis=diagnosis, changed_refs=changed_refs, reconciled=reconciled
             )
         except ValueError as e:
             return {"error": str(e)}
+        # each record needs a fresh audit — the next feedback_note refuses
+        # again until design_map has been consulted anew
+        audit_state["at"] = float("-inf")
         out: dict[str, Any] = {
             "feedback": f,
             "wiki_mirror": await _mirror_to_wiki(ctx, store),
@@ -383,6 +422,7 @@ def register_tools(ctx: PluginContext, store: FeedbackStore) -> None:
         return out
 
     async def _design_map() -> dict[str, Any]:
+        audit_state["at"] = time.monotonic()
         return await build_design_map(ctx, store)
 
     defs: list[tuple[ToolDef, Any]] = [
@@ -471,9 +511,10 @@ def register_tools(ctx: PluginContext, store: FeedbackStore) -> None:
                     "words in `quote`, your diagnosis of which artifact "
                     "produced the behavior, and `changed_refs` naming what "
                     "you changed (playbook name+version, identity field, "
-                    "trigger, wiki slug). Call design_map BEFORE this — the "
+                    "trigger, wiki slug). Call design_map BEFORE this — it "
+                    "refuses to record without a fresh audit, because the "
                     "criticized behavior usually lives in more than one "
-                    "artifact, and changed_refs should name every one you "
+                    "artifact and changed_refs should name every one you "
                     "touched. Feedback with empty changed_refs is a debt: "
                     "it stays red on every heartbeat and weekly review "
                     "until feedback_act closes it."
