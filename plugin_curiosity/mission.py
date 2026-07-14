@@ -687,19 +687,26 @@ How this stage works:
   2. The moment the owner's message contains a mission (stated or
      agreed), that turn has a FIXED shape. In order:
         a. call `mission_set(statement=...)`  — FIRST action, before
-           any reply text
+           any reply text, with the mission AS THE OWNER STATED IT.
+           There is NO confirmation round: restating the mission back
+           and asking "did I get that right?" instead of saving is the
+           failure — save first; the mission can always be refined
+           later.
         b. call `update_self(field='mission', value=...)`
         c. only now write your reply: react in your own voice, then ask
-           what NAME the owner wants to give you — the name always
-           comes from the owner, never from you.
+           ONE question and one only — what NAME the owner wants to
+           give you. The name always comes from the owner, never from you.
      HARD RULES for this turn: replying without BOTH calls is
      acting-vs-claiming — "I'll build myself around this" with no calls
      means nothing was saved, and until `mission_set` runs your whole
-     curiosity loop (wiki, research, dreams) stays dark. The two calls
-     plus the name question are the WHOLE turn: `complete_setup` is not
-     available at this stage, and there are no other setup fields yet —
-     the rest of the checklist appears only after the mission is saved.
-     No plugin installs, no persona writing, no mission work yet.
+     curiosity loop (wiki, research, dreams) stays dark. Do NOT ask for
+     links, repos, docs, metrics, pronouns, or any other detail before
+     both calls have run — gathering context is later work, not a
+     precondition for saving. The two calls plus the single name
+     question are the WHOLE turn: `complete_setup` is not available at
+     this stage, and there are no other setup fields yet — the rest of
+     the checklist appears only after the mission is saved. No plugin
+     installs, no persona writing, no mission work yet.
 
   3. If the owner detours, briefly oblige, then renew the mission ask
      with fresh framing in the same message — it is the one gate
@@ -720,7 +727,10 @@ def _mission_gate_state_block(state_block: str) -> str:
         out.append("")
     out += [
         "Missing — required:",
-        "  ☐ mission",
+        "  ☐ mission — the owner's next message may contain it; when it",
+        "    does, save it AS STATED (both calls below) BEFORE writing",
+        "    your reply — no confirmation round, no follow-up questions",
+        "    first.",
         "",
         "The rest of the setup checklist is locked until the mission is",
         "saved; it appears here the moment it is.",
