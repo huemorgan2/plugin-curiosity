@@ -50,7 +50,19 @@ try:
 except ImportError:  # pragma: no cover - older core
     _CLAIMS_SUPPORTED = False
 
-from . import abilities, comms, feedback, gating, goals, loops, mission, research, scopes, telemetry
+from . import (
+    abilities,
+    comms,
+    feedback,
+    gating,
+    goals,
+    loops,
+    mission,
+    research,
+    scopes,
+    setup_gate,
+    telemetry,
+)
 from .abilities import AbilityStore
 from .feedback import FeedbackStore
 from .goals import GoalStore
@@ -447,6 +459,7 @@ class CuriosityPlugin(LunaPlugin):
         self._heartbeats: HeartbeatStore | None = None
         self._feedback: FeedbackStore | None = None
         self._reflections: comms.ReflectionLog | None = None
+        self._ctx: PluginContext | None = None
         self._activated = False
         # None = gate not yet evaluated; [] = satisfied; [names] = blocked
         self._missing: list[str] | None = None
@@ -531,6 +544,13 @@ class CuriosityPlugin(LunaPlugin):
         comms.register_tools(ctx, self._reflections)
         telemetry.register_tools(ctx, self._heartbeats)
         feedback.register_tools(ctx, self._feedback)
+        # 0.9.14: the mission gate, tool layer — the dojo caught the blitz
+        # surviving the prompt-only gate (the tool schemas still advertised
+        # complete_setup + every field). Wrap plugin_onboarding's handlers:
+        # while the mission is missing, update_self takes only the mission
+        # and complete_setup refuses. Load order may put onboarding after
+        # us — the per-turn reinstall in _occupy_prompt converges it.
+        setup_gate.install_setup_gate(ctx, lambda: self._store)
         self._register_skill(ctx)
         # 8.1B → 0.9.7: prompt primacy. On claim cores (034/phase03) the
         # handler OCCUPIES the claimed core.drive slot and writes the
@@ -630,6 +650,14 @@ class CuriosityPlugin(LunaPlugin):
         ordering is prepended to the onboarding addendum itself — no 'this
         note OVERRIDES its ordering' prose, no position hack. Older cores
         (luna_sdk without CLAIMABLE_SOURCES) keep the legacy reorder path."""
+        # 0.9.14: re-converge the tool-layer mission gate every assembly — a
+        # plugin_onboarding hot reload re-registers the pristine handlers,
+        # and load order may have beaten _activate to the registry.
+        if self._ctx is not None:
+            try:
+                setup_gate.install_setup_gate(self._ctx, lambda: self._store)
+            except Exception:  # noqa: BLE001 - the gate is best-effort here
+                log.debug("setup gate reinstall failed", exc_info=True)
         if not _CLAIMS_SUPPORTED:
             await self._reorder_prompt(hctx)
             return

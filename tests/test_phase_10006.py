@@ -374,3 +374,135 @@ def test_version_bumped_everywhere():
     assert tomllib.loads(
         (root / "plugin_curiosity" / "luna-plugin.toml").read_text()
     )["version"] == "0.9.14"
+
+
+# -- 0.9.14 tool-layer mission gate ------------------------------------------
+# The dojo caught the blitz surviving the prompt-only gate: the tool schemas
+# still advertised complete_setup + every update_self field. The gate must
+# live in the handlers.
+
+
+class _GateDef:
+    def __init__(self, name, description):
+        self.name = name
+        self.description = description
+
+
+class _GateEntry:
+    def __init__(self, name, desc, handler):
+        self.definition = _GateDef(name, desc)
+        self.handler = handler
+
+
+class _GateRegistry:
+    def __init__(self, entries=()):
+        self._e = {e.definition.name: e for e in entries}
+
+    def get(self, name):
+        return self._e[name]
+
+
+class _GateCtx:
+    def __init__(self, reg):
+        self.tool_registry = reg
+        # the identity probe treats a failing session factory as "mission
+        # missing" — the safe default; open-gate tests use the store path
+        self.db_session_factory = _boom_sf
+
+
+def _boom_sf():
+    raise RuntimeError("no db in this test")
+
+
+class _GateStore:
+    def __init__(self, mission=None):
+        self.mission = mission
+
+    async def get(self):
+        return self.mission
+
+
+def _gated_pair():
+    calls = []
+
+    async def update_self(field="", value="", **kw):
+        calls.append(("update_self", field, value))
+        return {"ok": True, "field": field}
+
+    async def complete_setup(**kw):
+        calls.append(("complete_setup",))
+        return {"ok": True}
+
+    ut = _GateEntry("update_self", "MISSION and PERSONA you write yourself", update_self)
+    ct = _GateEntry("complete_setup", "Finish first-run setup.", complete_setup)
+    return _GateCtx(_GateRegistry([ut, ct])), ut, ct, calls
+
+
+@pytest.mark.asyncio
+async def test_gate_locks_non_mission_fields_and_completion():
+    from plugin_curiosity.setup_gate import install_setup_gate
+
+    ctx, ut, ct, calls = _gated_pair()
+    assert install_setup_gate(ctx, lambda: _GateStore(None)) is True
+
+    out = await ut.handler(field="name", value="Gal")
+    assert out["ok"] is False and "locked" in out["error"]
+    assert "mission_set" in out["hint"]
+    out = await ct.handler()
+    assert out["ok"] is False and "mission" in out["error"]
+    assert calls == []  # neither original ever fired
+
+
+@pytest.mark.asyncio
+async def test_gate_lets_the_mission_through_while_locked():
+    from plugin_curiosity.setup_gate import install_setup_gate
+
+    ctx, ut, ct, calls = _gated_pair()
+    install_setup_gate(ctx, lambda: _GateStore(None))
+    out = await ut.handler(field="mission", value="grow adoption")
+    assert out["ok"] is True
+    out = await ut.handler(field="purpose", value="grow adoption")  # alias
+    assert out["ok"] is True
+    assert len(calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_gate_opens_with_an_active_mission():
+    from plugin_curiosity.setup_gate import install_setup_gate
+
+    ctx, ut, ct, calls = _gated_pair()
+    install_setup_gate(ctx, lambda: _GateStore({"statement": "x"}))
+    assert (await ut.handler(field="name", value="Nadav"))["ok"] is True
+    assert (await ct.handler())["ok"] is True
+    assert len(calls) == 2
+
+
+def test_gate_install_is_idempotent_and_removable():
+    from plugin_curiosity.setup_gate import install_setup_gate, remove_setup_gate
+
+    ctx, ut, ct, _ = _gated_pair()
+    orig_u, orig_c = ut.handler, ct.handler
+    assert install_setup_gate(ctx, lambda: _GateStore(None)) is True
+    wrapped_u = ut.handler
+    assert install_setup_gate(ctx, lambda: _GateStore(None)) is False
+    assert ut.handler is wrapped_u  # no double wrap
+    remove_setup_gate(ctx)
+    assert ut.handler is orig_u and ct.handler is orig_c
+
+
+def test_gate_rewrites_the_blitz_seeding_descriptions():
+    from plugin_curiosity.setup_gate import install_setup_gate
+
+    ctx, ut, ct, _ = _gated_pair()
+    install_setup_gate(ctx, lambda: _GateStore(None))
+    # the old text told the agent to write the mission herself
+    assert "you write yourself" not in ut.definition.description.split("PERSONA")[0]
+    assert "comes from the owner and is saved FIRST" in ut.definition.description
+    assert "never invent" in ut.definition.description
+    assert "Locked until the mission is saved" in ct.definition.description
+
+
+def test_gate_survives_missing_tools():
+    from plugin_curiosity.setup_gate import install_setup_gate
+
+    assert install_setup_gate(_GateCtx(_GateRegistry()), lambda: None) is False
