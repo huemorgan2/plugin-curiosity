@@ -490,16 +490,38 @@ def test_gate_install_is_idempotent_and_removable():
     assert ut.handler is orig_u and ct.handler is orig_c
 
 
-def test_gate_rewrites_the_blitz_seeding_descriptions():
+def test_gate_installs_the_mission_only_descriptions():
     from plugin_curiosity.setup_gate import install_setup_gate
 
     ctx, ut, ct, _ = _gated_pair()
     install_setup_gate(ctx, lambda: _GateStore(None))
-    # the old text told the agent to write the mission herself
-    assert "you write yourself" not in ut.definition.description.split("PERSONA")[0]
-    assert "comes from the owner and is saved FIRST" in ut.definition.description
+    # run 3: the model follows tool descriptions over flow prose — while the
+    # gate is closed the schemas must describe ONLY the mission stage: no
+    # field list, no name/emoji asks, no self-written mission.
+    d = ut.definition.description
+    assert "exactly ONE field is unlocked: mission" in d
+    assert "AS STATED" in d and "no confirmation round" in d
+    assert "agent_name" not in d and "emoji" not in d
+    assert "you write yourself" not in d
+    assert "LOCKED until the mission is saved" in ct.definition.description
+
+
+@pytest.mark.asyncio
+async def test_gate_descriptions_flip_with_the_state():
+    from plugin_curiosity import setup_gate
+
+    ctx, ut, ct, _ = _gated_pair()
+    setup_gate.install_setup_gate(ctx, lambda: _GateStore(None))
+    await setup_gate.sync_gate_descriptions(ctx, lambda: _GateStore(None))
+    assert "exactly ONE field is unlocked" in ut.definition.description
+    # mission saved → the full checklist text returns
+    await setup_gate.sync_gate_descriptions(ctx, lambda: _GateStore({"statement": "x"}))
     assert "never invent" in ut.definition.description
-    assert "Locked until the mission is saved" in ct.definition.description
+    assert "agent_name" in ut.definition.description
+    assert ct.definition.description.startswith("Finish first-run setup")
+    # the sync is state-pure: a closed gate restores the mission-only text
+    await setup_gate.sync_gate_descriptions(ctx, lambda: _GateStore(None))
+    assert "exactly ONE field is unlocked" in ut.definition.description
 
 
 def test_gate_survives_missing_tools():

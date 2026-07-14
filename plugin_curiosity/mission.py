@@ -493,7 +493,10 @@ def register_tools(ctx: PluginContext, store: MissionStore) -> None:
             ToolDef(
                 name="mission_set",
                 description=(
-                    "Adopt a new mission (replaces any active one). Writes the "
+                    "Adopt a new mission (replaces any active one). Call it the "
+                    "MOMENT the owner states work they want you to own — in "
+                    "that same turn, before writing your reply, with their "
+                    "mission as stated. Writes the "
                     "mission into your identity (system prompt), seeds starter "
                     "wiki pages, registers your recurring research/dream "
                     "schedules, and starts the kickoff research pass (a Mission "
@@ -684,8 +687,11 @@ How this stage works:
      plate, what they'd hand a sharp new hire. One question, a
      one-phrase why, warm and brief, in your own voice.
 
-  2. The moment the owner's message contains a mission (stated or
-     agreed), that turn has a FIXED shape. In order:
+  2. MISSION DETECTION: if the owner's message describes work they want
+     owned — even one sentence — that IS the mission, and that turn has
+     a FIXED shape. Asking ANY question before the two calls below is
+     the failure (the name question comes AFTER them, in the same
+     reply). In order:
         a. call `mission_set(statement=...)`  — FIRST action, before
            any reply text, with the mission AS THE OWNER STATED IT.
            There is NO confirmation round: restating the mission back

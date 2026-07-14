@@ -656,6 +656,7 @@ class CuriosityPlugin(LunaPlugin):
         if self._ctx is not None:
             try:
                 setup_gate.install_setup_gate(self._ctx, lambda: self._store)
+                await setup_gate.sync_gate_descriptions(self._ctx, lambda: self._store)
             except Exception:  # noqa: BLE001 - the gate is best-effort here
                 log.debug("setup gate reinstall failed", exc_info=True)
         if not _CLAIMS_SUPPORTED:

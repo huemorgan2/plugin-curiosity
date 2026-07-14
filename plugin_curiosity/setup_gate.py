@@ -33,23 +33,42 @@ _GATE_MARK = "_curiosity_mission_gate"
 # update_self aliases that mean the mission (plugin_onboarding._ALIASES).
 _MISSION_FIELDS = {"mission", "purpose"}
 
-UPDATE_SELF_DESC = (
+# Stage-aware descriptions (dojo run 3): the model follows tool descriptions
+# more faithfully than flow prose — run 2 blitzed on "MISSION and PERSONA you
+# write yourself", run 3 asked for the name pre-save on "NAME and EMOJI come
+# from the owner". So while the gate is closed the schemas must describe ONLY
+# the mission stage; the full checklist text appears the moment it opens.
+# sync_gate_descriptions() flips them on every prompt assembly.
+UPDATE_SELF_DESC_GATED = (
     "Save a single piece of your own identity during first-run setup. "
-    "The MISSION comes from the owner and is saved FIRST — until it is "
-    "saved, every other field is locked. NAME and EMOJI come from the "
-    "owner too: ask, never invent them. PERSONA you write yourself once "
-    "the mission and name are in. Required fields: agent_name, emoji, "
-    "mission, persona. Optional: owner_name, owner_pronouns, "
-    "first_work_target, decision_authority."
+    "RIGHT NOW exactly ONE field is unlocked: mission. The mission comes "
+    "from the owner and is saved FIRST — the moment their message states "
+    "the work they want you to own, call mission_set(statement=...) and "
+    "then update_self(field='mission', value=<their words>) BEFORE "
+    "writing your reply. Save it AS STATED — no confirmation round. "
+    "Every other field is locked and unlocks the moment the mission is "
+    "saved; do not ask the owner about any of them yet."
 )
 
-COMPLETE_SETUP_DESC = (
-    "Finish first-run setup. Locked until the mission is saved, and "
-    "returns an error listing what's missing while any required field "
-    "is unsaved. The owner drives the pace of the checklist — complete "
-    "only when they have given you the remaining answers. After this "
-    "succeeds, your next message MUST propose a concrete first piece "
-    "of work."
+UPDATE_SELF_DESC_OPEN = (
+    "Save a single piece of your own identity during first-run setup. "
+    "NAME and EMOJI come from the owner: ask, never invent them. PERSONA "
+    "you write yourself. Required fields: agent_name, emoji, mission, "
+    "persona. Optional: owner_name, owner_pronouns, first_work_target, "
+    "decision_authority."
+)
+
+COMPLETE_SETUP_DESC_GATED = (
+    "LOCKED until the mission is saved — calling this now returns an "
+    "error. Save the owner's mission first."
+)
+
+COMPLETE_SETUP_DESC_OPEN = (
+    "Finish first-run setup. Returns an error listing what's missing "
+    "while any required field is unsaved. The owner drives the pace of "
+    "the checklist — complete only when they have given you the "
+    "remaining answers. After this succeeds, your next message MUST "
+    "propose a concrete first piece of work."
 )
 
 _LOCKED_FIELD_ERROR = {
@@ -89,20 +108,9 @@ async def _identity_has_mission(sf) -> bool:
     return bool(row and str(row).strip())
 
 
-def install_setup_gate(ctx, get_store: Callable[[], Any]) -> bool:
-    """Wrap plugin_onboarding's update_self/complete_setup with the mission
-    gate and rewrite their schema descriptions to mission-first. Idempotent
-    (marker attribute on the wrapper); safe to call every turn. Returns True
-    when at least one wrapper was (re)installed, False when the tools are
-    absent or already gated."""
-    reg = getattr(ctx, "tool_registry", None)
-    if reg is None:
-        return False
-    try:
-        ut = reg.get("update_self")
-        ct = reg.get("complete_setup")
-    except (KeyError, AttributeError):
-        return False
+def _gate_probe(ctx, get_store: Callable[[], Any]):
+    """An async callable answering 'is the mission saved?' — the store first
+    (mission_set), the identity row second (update_self bridge)."""
     sf = ctx.db_session_factory
 
     async def gate_open() -> bool:
@@ -115,6 +123,26 @@ def install_setup_gate(ctx, get_store: Callable[[], Any]) -> bool:
                 pass
         return await _identity_has_mission(sf)
 
+    return gate_open
+
+
+def install_setup_gate(ctx, get_store: Callable[[], Any]) -> bool:
+    """Wrap plugin_onboarding's update_self/complete_setup with the mission
+    gate and set their schema descriptions to the gated (mission-only) text.
+    Idempotent (marker attribute on the wrapper); safe to call every turn.
+    Returns True when at least one wrapper was (re)installed, False when the
+    tools are absent or already gated. sync_gate_descriptions() keeps the
+    descriptions matched to the live state afterwards."""
+    reg = getattr(ctx, "tool_registry", None)
+    if reg is None:
+        return False
+    try:
+        ut = reg.get("update_self")
+        ct = reg.get("complete_setup")
+    except (KeyError, AttributeError):
+        return False
+
+    gate_open = _gate_probe(ctx, get_store)
     installed = False
 
     if not getattr(ut.handler, _GATE_MARK, False):
@@ -128,7 +156,7 @@ def install_setup_gate(ctx, get_store: Callable[[], Any]) -> bool:
         setattr(update_self_gated, _GATE_MARK, True)
         setattr(update_self_gated, "_curiosity_gate_orig", orig_update)
         ut.handler = update_self_gated
-        ut.definition.description = UPDATE_SELF_DESC
+        ut.definition.description = UPDATE_SELF_DESC_GATED
         installed = True
 
     if not getattr(ct.handler, _GATE_MARK, False):
@@ -142,10 +170,29 @@ def install_setup_gate(ctx, get_store: Callable[[], Any]) -> bool:
         setattr(complete_setup_gated, _GATE_MARK, True)
         setattr(complete_setup_gated, "_curiosity_gate_orig", orig_complete)
         ct.handler = complete_setup_gated
-        ct.definition.description = COMPLETE_SETUP_DESC
+        ct.definition.description = COMPLETE_SETUP_DESC_GATED
         installed = True
 
     return installed
+
+
+async def sync_gate_descriptions(ctx, get_store: Callable[[], Any]) -> None:
+    """Match the two schema descriptions to the live gate state — called on
+    every prompt assembly. While the mission is missing the schemas describe
+    a mission-only stage; once it's saved the full checklist text returns."""
+    reg = getattr(ctx, "tool_registry", None)
+    if reg is None:
+        return
+    try:
+        ut = reg.get("update_self")
+        ct = reg.get("complete_setup")
+    except (KeyError, AttributeError):
+        return
+    open_ = await _gate_probe(ctx, get_store)()
+    ut.definition.description = UPDATE_SELF_DESC_OPEN if open_ else UPDATE_SELF_DESC_GATED
+    ct.definition.description = (
+        COMPLETE_SETUP_DESC_OPEN if open_ else COMPLETE_SETUP_DESC_GATED
+    )
 
 
 def remove_setup_gate(ctx) -> None:
