@@ -271,6 +271,19 @@ function renderGoals(o) {
   show('goals-panel', goals.length + undated.length > 0);
   if (!goals.length && !undated.length) return;
 
+  // 0.10.0: goals living in the Goal-Seek engine link out to their pane
+  const eyebrow = document.querySelector('#goals-panel .eyebrow');
+  if (eyebrow && !eyebrow.querySelector('.pane-link') &&
+      (o.goals || []).some((g) => g.engine === 'goalseek')) {
+    const a = document.createElement('a');
+    a.className = 'pane-link';
+    a.href = '/p/goals';
+    a.target = '_top';
+    a.textContent = 'open in Goals pane →';
+    a.style.cssText = 'float:right;font-size:11px;color:#8b5cf6;text-decoration:none';
+    eyebrow.appendChild(a);
+  }
+
   const upcoming = goals.filter((g) => g.status === 'active' || g.status === 'stalled');
   const next = upcoming[0];
   $('goals-headline').textContent = next

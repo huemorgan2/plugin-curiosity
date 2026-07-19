@@ -114,6 +114,14 @@ class Goal(Base):
     expected_result: Mapped[str] = mapped_column(Text, default="", nullable=False)
     readiness: Mapped[str] = mapped_column(String(8), default="", nullable=False)
     readiness_note: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    # 0.10.0 (goal-engine handover): when plugin-goalseek is the engine, this
+    # row becomes a POINTER — goalseek_id names the live goal in goal-seek's
+    # tables; the local columns freeze as the open-time snapshot. migrated_at
+    # marks rows converted by the one-time migration (idempotence key).
+    goalseek_id: Mapped[str] = mapped_column(String(36), default="", nullable=False)
+    migrated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
     )
@@ -342,6 +350,9 @@ _ADDITIVE_COLUMNS: dict[str, tuple[tuple[str, str], ...]] = {
         ("expected_result", "TEXT NOT NULL DEFAULT ''"),
         ("readiness", "VARCHAR(8) NOT NULL DEFAULT ''"),
         ("readiness_note", "TEXT NOT NULL DEFAULT ''"),
+        # 0.10.0 goal-engine handover
+        ("goalseek_id", "VARCHAR(36) NOT NULL DEFAULT ''"),
+        ("migrated_at", "TIMESTAMP WITH TIME ZONE"),
     ),
     "curiosity_scopes": (
         # {UUID} resolves per dialect at apply time — Postgres UUID,

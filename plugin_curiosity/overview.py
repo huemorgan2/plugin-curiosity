@@ -31,7 +31,7 @@ from sqlalchemy import select
 
 from luna_sdk import PluginContext
 
-from . import telemetry, wikibind
+from . import goals, telemetry, wikibind
 from .abilities import AbilityStore
 from .goals import GoalStore
 from .loops import LoopStore, _loop_dict, _value_dict
@@ -610,7 +610,9 @@ async def build_overview(
     setup_stage = state["setup_stage"] if state else None
 
     scopes_list = await scope_store.list()
-    goals_list = await goal_store.list()
+    # 0.10.0: engine-routed — live goal-seek goals (pointer-scoped to the
+    # mission) when the goal engine is goal-seek, the local ledger otherwise
+    goals_list = await goals.list_mission_goals(ctx, goal_store)
     loops_all = await loop_store.list()
     loops_open = [lp for lp in loops_all if lp["status"] == "open"]
     value_log = await loop_store.value_list()
