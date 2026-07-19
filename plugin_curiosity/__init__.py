@@ -53,6 +53,7 @@ except ImportError:  # pragma: no cover - older core
 from . import (
     abilities,
     comms,
+    engine,
     feedback,
     gating,
     goals,
@@ -360,6 +361,22 @@ def schedule_on_load_work(
             await maybe_send_install_kickoff(ctx, store)
         except Exception:  # noqa: BLE001
             log.warning("install kickoff on load failed", exc_info=True)
+        # 0.10.0: goal-engine handover. With goal-seek installed and open
+        # internal goals unmigrated, run the one-time pointer conversion —
+        # under a single owner approval card; declined/undecided retries on
+        # a later load (idempotent). Runs BEFORE the missionless early-return:
+        # the migration is about goal rows, which can outlive their mission.
+        if (
+            _plugin is not None
+            and _plugin._goals is not None
+            and engine.resolve_goal_engine(ctx) == engine.GOAL_ENGINE_GOALSEEK
+        ):
+            try:
+                result = await goals.migrate_internal_goals(ctx, _plugin._goals)
+                if result.get("migrated") or result.get("note") != "nothing to migrate":
+                    log.info("goal migration on load: %s", result)
+            except Exception:  # noqa: BLE001
+                log.warning("goal migration on load failed", exc_info=True)
         try:
             if await store.get() is None:
                 return  # no mission — mission_set will register schedules
@@ -423,7 +440,7 @@ if "prompt_overrides" in getattr(PluginManifest, "model_fields", {}):
 class CuriosityPlugin(LunaPlugin):
     manifest = PluginManifest(
         name="plugin-curiosity",
-        version="0.9.14",
+        version="0.10.1",
         description=(
             "Mission-driven curiosity: research, wiki-building, nightly dreams, "
             "self-set goals, weekly mission reviews, proactive reflections, and "
@@ -552,6 +569,7 @@ class CuriosityPlugin(LunaPlugin):
         # us — the per-turn reinstall in _occupy_prompt converges it.
         setup_gate.install_setup_gate(ctx, lambda: self._store)
         self._register_skill(ctx)
+        self._register_config_section(ctx)
         # 8.1B → 0.9.7: prompt primacy. On claim cores (034/phase03) the
         # handler OCCUPIES the claimed core.drive slot and writes the
         # mission-first note into the claimed onboarding addendum; on older
@@ -564,6 +582,69 @@ class CuriosityPlugin(LunaPlugin):
             except Exception:  # noqa: BLE001
                 log.warning("prompt.assemble registration failed", exc_info=True)
         log.info("plugin-curiosity loaded (tools=23)")
+
+    def _register_config_section(self, ctx: PluginContext) -> None:
+        """0.10.0 (phase-05 pattern, proven in goal-seek): a tiny read-only
+        config section so the agent can answer "which goal engine is
+        curiosity using?" via manage_config — no bespoke tool. Duck-typed
+        (luna_sdk doesn't export ConfigSection; the registry reads
+        attributes); older cores without the seam skip it."""
+        register = getattr(ctx, "register_config_section", None)
+        if not callable(register):
+            return
+
+        from dataclasses import dataclass, field
+        from typing import Any as _Any
+
+        @dataclass
+        class _Section:
+            id: str
+            label: str
+            description: str
+            reader: _Any
+            writer: _Any
+            schema: _Any
+            plugin: str = "plugin-curiosity"
+            readonly_fields: list = field(default_factory=list)
+
+        async def _read() -> dict:
+            return {"goal_engine": engine.resolve_goal_engine(ctx)}
+
+        async def _write(changes: dict) -> dict:
+            return {
+                "error": (
+                    "goal_engine is resolved from what's installed (goal-seek "
+                    "present → 'goalseek'), not set by hand — install or remove "
+                    "plugin-goalseek to change it"
+                )
+            }
+
+        try:
+            register(
+                _Section(
+                    id="curiosity",
+                    label="Curiosity",
+                    description=(
+                        "Curiosity's runtime wiring. goal_engine says where "
+                        "mission goals live: 'goalseek' (the governed Goal-Seek "
+                        "engine — Goals pane, policies, heartbeats) or "
+                        "'internal' (curiosity's own ledger). Read-only."
+                    ),
+                    reader=_read,
+                    writer=_write,
+                    schema=lambda: {
+                        "goal_engine": {
+                            "type": "string",
+                            "enum": ["internal", "goalseek"],
+                            "readonly": True,
+                            "description": "Resolved from installed plugins.",
+                        }
+                    },
+                    readonly_fields=["goal_engine"],
+                )
+            )
+        except Exception:  # noqa: BLE001 — a registry quirk must not fail activate
+            log.warning("curiosity config section registration failed", exc_info=True)
 
     def _register_skill(self, ctx: PluginContext) -> None:
         """0.9.12: the mission-changes skill. Its three tools (gating.GATED_TOOLS)
@@ -740,4 +821,22 @@ class CuriosityPlugin(LunaPlugin):
         if mission is not None and self._scopes is not None:
             state = await self._scopes.state()
             phase = state["agent_phase"] if state else None
-        return [prompt_fragment(mission, phase, slot_mode=_CLAIMS_SUPPORTED)]
+        sections = [prompt_fragment(mission, phase, slot_mode=_CLAIMS_SUPPORTED)]
+        # 0.10.0: with the goal engine flipped, say so — the agent must know
+        # its goals live in goal-seek (stages/policies, the Goals pane) and
+        # that goal_set still adds mission membership on top of the open.
+        if (
+            mission is not None
+            and getattr(self, "_ctx", None) is not None
+            and engine.resolve_goal_engine(self._ctx) == engine.GOAL_ENGINE_GOALSEEK
+        ):
+            sections.append(
+                "Your goal engine is Goal-Seek: mission goals live in its "
+                "governed engine (stages, policies, heartbeats — the owner "
+                "sees them in the Goals pane). goal_set still opens MISSION "
+                "goals (it delegates and keeps mission membership); "
+                "goal_update / goal_list are Goal-Seek's own tools — use "
+                "goal_id (not id), goal_close (not status='done') to end a "
+                "goal, and goal_fact_set / goal_note to record what you learn."
+            )
+        return sections

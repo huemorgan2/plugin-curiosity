@@ -9,20 +9,36 @@ Write-through: every change rebuilds the human-readable [[mission-goals]]
 wiki page (best-effort — a missing wiki degrades the payload note, never the
 write). The DB row is the source of truth; the page is the owner's mirror.
 
+0.10.0 — the goal-engine handover. When plugin-goalseek is installed
+(engine.resolve_goal_engine == "goalseek"), mission goals live in ITS
+governed engine instead of this ledger:
+
+- ``goal_set`` delegates the open to goal-seek and keeps a POINTER row here
+  (goalseek_id) — the mission-membership set that scopes every curiosity
+  read to mission goals on a shared board.
+- ``goal_update`` / ``goal_list`` are registered as deferential fallbacks
+  (``yields_to="plugin-goalseek"``): with goal-seek installed, ITS richer
+  tools serve those names; standalone, ours do — same names, either way.
+- Reads (pane, mirror, review) route through :func:`list_mission_goals`,
+  which maps goal-seek's dicts into this ledger's shape.
+
 All three tools are auto_approve: goals are Luna's own commitments, not side
-effects on the world.
+effects on the world. (A DELEGATED open is still governed — goal-seek's own
+approval/grant flow applies to agent-opened goals.)
 """
 
 from __future__ import annotations
 
 import logging
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import select
 
 from luna_sdk import PluginContext, ToolDef
 
+from . import engine
 from .models import Goal
 
 log = logging.getLogger("plugin-curiosity")
@@ -35,7 +51,7 @@ GOAL_READINESS = ("green", "amber", "red")
 
 
 def _goal_dict(g: Goal) -> dict[str, Any]:
-    return {
+    out = {
         "id": str(g.id),
         "statement": g.statement,
         "why": g.why,
@@ -48,6 +64,9 @@ def _goal_dict(g: Goal) -> dict[str, Any]:
         "created_at": g.created_at.isoformat() if g.created_at else None,
         "updated_at": g.updated_at.isoformat() if g.updated_at else None,
     }
+    if getattr(g, "goalseek_id", ""):
+        out["goalseek_id"] = g.goalseek_id
+    return out
 
 
 class GoalStore:
@@ -129,9 +148,114 @@ class GoalStore:
                 out = [g for g in out if g["status"] in ("active", "stalled")]
             return out
 
+    # -- 0.10.0 pointer plumbing (goal-engine handover) ----------------------
+
+    async def add_pointer(
+        self,
+        goalseek_id: str,
+        *,
+        statement: str,
+        why: str = "",
+        target_date: str = "",
+        expected_result: str = "",
+    ) -> dict[str, Any]:
+        """A pointer row for a goal that LIVES in goal-seek: goalseek_id names
+        the live goal, the local columns freeze the open-time snapshot. The
+        pointer set is what scopes curiosity's reads to mission goals."""
+        async with self._sf() as s:
+            g = Goal(
+                statement=(statement or "").strip(),
+                why=(why or "").strip(),
+                target_date=(target_date or "").strip(),
+                expected_result=(expected_result or "").strip(),
+                goalseek_id=str(goalseek_id),
+            )
+            s.add(g)
+            await s.commit()
+            return _goal_dict(g)
+
+    async def pointer_map(self) -> dict[str, dict[str, Any]]:
+        """goalseek_id → pointer row dict, for every pointered goal."""
+        async with self._sf() as s:
+            rows = (
+                (await s.execute(select(Goal).where(Goal.goalseek_id != "")))
+                .scalars()
+                .all()
+            )
+            return {g.goalseek_id: _goal_dict(g) for g in rows}
+
+    async def open_unmigrated(self) -> list[dict[str, Any]]:
+        """Internal rows the one-time migration still owes goal-seek: open
+        statuses, no pointer, never migrated."""
+        async with self._sf() as s:
+            rows = (
+                (
+                    await s.execute(
+                        select(Goal)
+                        .where(
+                            Goal.goalseek_id == "",
+                            Goal.migrated_at.is_(None),
+                            Goal.status.in_(("active", "stalled")),
+                        )
+                        .order_by(Goal.created_at)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            return [_goal_dict(g) for g in rows]
+
+    async def mark_migrated(self, goal_id: str, goalseek_id: str) -> None:
+        """Stamp one migrated row: the local columns stay as the frozen
+        snapshot; goalseek_id + migrated_at make the second run skip it."""
+        async with self._sf() as s:
+            g = await s.get(Goal, uuid.UUID(str(goal_id)))
+            if g is None:
+                return
+            g.goalseek_id = str(goalseek_id)
+            g.migrated_at = datetime.now(UTC)
+            await s.commit()
+
 
 _STATUS_MARK = {"active": "🎯", "done": "✅", "stalled": "⚠️", "dropped": "✖️"}
 _READINESS_MARK = {"green": "🟢", "amber": "🟡", "red": "🔴"}
+
+
+async def list_mission_goals(ctx: PluginContext, store: GoalStore) -> list[dict[str, Any]]:
+    """Every mission goal, engine-routed, in the ledger's dict shape.
+
+    internal → the local rows exactly as before. goalseek → the LIVE goals
+    from goal-seek scoped to the pointer set (mission membership), mapped by
+    :func:`engine.to_curiosity_dict`, enriched with the pointer's why/
+    readiness (curiosity-only fields goal-seek doesn't keep), followed by the
+    frozen pre-migration history rows (closed internal goals). A goal-seek
+    read failure degrades to the pointer snapshots — the pane must render."""
+    if engine.resolve_goal_engine(ctx) != engine.GOAL_ENGINE_GOALSEEK:
+        return await store.list()
+    pointers = await store.pointer_map()
+    history = [
+        g for g in await store.list() if not g.get("goalseek_id")
+    ]  # pre-migration closed rows keep their place in reviews/value merges
+    try:
+        live = await engine.engine_list(ctx, include_closed=True)
+    except Exception:  # noqa: BLE001 — degrade to snapshots, never blank
+        log.warning("goal-seek list failed — serving pointer snapshots", exc_info=True)
+        return [dict(p, engine="goalseek") for p in pointers.values()] + history
+    out: list[dict[str, Any]] = []
+    for g in live:
+        gid = str(g.get("id") or "")
+        p = pointers.get(gid)
+        if p is None:
+            continue  # not a mission goal — someone else's board entry
+        mapped = engine.to_curiosity_dict(g)
+        # curiosity-only fields ride on the pointer row
+        mapped["why"] = p.get("why", "")
+        mapped["readiness"] = p.get("readiness")
+        mapped["readiness_note"] = p.get("readiness_note", "")
+        if not mapped["target_date"]:
+            mapped["target_date"] = p.get("target_date", "")
+        out.append(mapped)
+    return out + history
 
 
 def render_goals_page(goals: list[dict[str, Any]]) -> str:
@@ -158,6 +282,10 @@ def render_goals_page(goals: list[dict[str, Any]]) -> str:
             lines.append(f"  - readiness: {rmark} {g['readiness']}{note}")
         if g["progress_note"]:
             lines.append(f"  - progress: {g['progress_note']}")
+        if g.get("engine") == "goalseek" and g.get("id"):
+            # phase 06 seam: goal-seek keeps a narrative page per goal in the
+            # same wiki — the wikilink puts it on the mission graph
+            lines.append(f"  - engine: goal-seek — details at [[goal-{g['id'][:8]}]]")
         lines.append(f"  - status: {g['status']}")
     lines.append("")
     return "\n".join(lines)
@@ -172,7 +300,7 @@ async def _mirror_to_wiki(ctx: PluginContext, store: GoalStore) -> str:
         return "wiki provider unavailable — goals page not mirrored"
     try:
         wk = await wikibind.wiki_kwargs(ctx, store._sf)  # noqa: SLF001
-        goals = await store.list()
+        goals = await list_mission_goals(ctx, store)
         await wiki.upsert_page(
             "mission-goals",
             "Mission Goals",
@@ -187,6 +315,26 @@ async def _mirror_to_wiki(ctx: PluginContext, store: GoalStore) -> str:
         return f"wiki mirror failed: {e}"
 
 
+def _register_yielding(ctx: PluginContext, tool_def: ToolDef, handler: Any) -> None:
+    """Register a tool that DEFERS to goal-seek's same-named tool.
+
+    New cores take ``yields_to`` and resolve the overlap in both load orders.
+    Older cores don't know the kwarg (TypeError → plain registration) and may
+    already hold goal-seek's registration (ValueError → skip: same outcome as
+    yielding, goal-seek serves the name)."""
+    try:
+        ctx.tool_registry.register(
+            "plugin-curiosity", tool_def, handler, yields_to="plugin-goalseek"
+        )
+        return
+    except TypeError:
+        pass
+    try:
+        ctx.tool_registry.register("plugin-curiosity", tool_def, handler)
+    except ValueError:
+        log.info("tool %s already served by goal-seek — yielded", tool_def.name)
+
+
 def register_tools(ctx: PluginContext, store: GoalStore) -> None:
     from . import telemetry
 
@@ -198,6 +346,12 @@ def register_tools(ctx: PluginContext, store: GoalStore) -> None:
         readiness: str = "",
         readiness_note: str = "",
     ) -> dict[str, Any]:
+        if engine.resolve_goal_engine(ctx) == engine.GOAL_ENGINE_GOALSEEK:
+            return await _set_via_goalseek(
+                ctx, store,
+                statement=statement, why=why, target_date=target_date,
+                expected_result=expected_result,
+            )
         try:
             goal = await store.add(
                 statement,
@@ -248,7 +402,7 @@ def register_tools(ctx: PluginContext, store: GoalStore) -> None:
             }
         return {"goals": goals}
 
-    defs: list[tuple[ToolDef, Any]] = [
+    set_def = (
         (
             ToolDef(
                 name="goal_set",
@@ -295,6 +449,8 @@ def register_tools(ctx: PluginContext, store: GoalStore) -> None:
             ),
             _set,
         ),
+    )
+    yielding_defs: list[tuple[ToolDef, Any]] = [
         (
             ToolDef(
                 name="goal_update",
@@ -349,5 +505,125 @@ def register_tools(ctx: PluginContext, store: GoalStore) -> None:
             _list,
         ),
     ]
-    for tool_def, handler in defs:
+    # goal_set is ALWAYS curiosity's (it adds mission membership on top of a
+    # delegated open). goal_update/goal_list overlap goal-seek's names by
+    # design: with goal-seek installed its richer tools serve them; standalone
+    # this ledger does — the deferential registration resolves both orders.
+    for tool_def, handler in set_def:
         ctx.tool_registry.register("plugin-curiosity", tool_def, handler)
+    for tool_def, handler in yielding_defs:
+        _register_yielding(ctx, tool_def, handler)
+
+
+async def _set_via_goalseek(
+    ctx: PluginContext,
+    store: GoalStore,
+    *,
+    statement: str,
+    why: str = "",
+    target_date: str = "",
+    expected_result: str = "",
+) -> dict[str, Any]:
+    """goal_set, goal-seek engine: delegate the open (goal-seek's own
+    agent-open governance applies — grant or approval card), keep the pointer
+    row for mission membership, refresh the mirror. Honest passthrough: a
+    rejected/proposed open is reported exactly as goal-seek said it."""
+    from . import telemetry
+
+    statement = (statement or "").strip()
+    if not statement:
+        return {"error": "goal statement must be non-empty"}
+    dod = (expected_result or "").strip() or f"Owner agrees done: {statement}"
+    note_bits = [b for b in ((why or "").strip(),) if b]
+    try:
+        opened = await engine.engine_open(
+            ctx,
+            statement=statement,
+            definition_of_done=dod,
+            deadline=(target_date or "").strip() or None,
+            opened_by="agent",
+            note=("Mission goal (curiosity). " + " ".join(note_bits)).strip(),
+        )
+    except Exception as e:  # noqa: BLE001 — the agent must hear the real block
+        return {"error": f"goal engine rejected the open: {e}", "engine": "goalseek"}
+    if opened.get("status") == "rejected":
+        return {**opened, "engine": "goalseek"}
+    gid = str(opened.get("id") or "")
+    if gid:
+        await store.add_pointer(
+            gid,
+            statement=statement,
+            why=why,
+            target_date=target_date,
+            expected_result=expected_result,
+        )
+    await telemetry.emit_ui_event(ctx, "changed", {"what": "goal"})
+    return {
+        "goal": opened,
+        "engine": "goalseek",
+        "note": (
+            "opened in the Goal-Seek engine (stages, policies, heartbeats — "
+            "see the Goals pane); use goal_update/goal_list to work it"
+        ),
+        "wiki_mirror": await _mirror_to_wiki(ctx, store),
+    }
+
+
+async def migrate_internal_goals(ctx: PluginContext, store: GoalStore) -> dict[str, Any]:
+    """One-time pointer conversion when the engine flips to goal-seek.
+
+    Open internal rows (active/stalled) move under ONE owner approval card —
+    "move N goals into Goal-Seek" — not N separate goal_open cards: the opens
+    then run as owner-approved (opened_by='owner', provenance note). Closed
+    rows stay internal (history; value/review reads merge both sources).
+    Idempotent: migrated rows carry goalseek_id + migrated_at and are never
+    re-sent; a declined/expired card leaves everything untouched for a later
+    retry. Never raises — the on-load path logs the summary."""
+    pending = await store.open_unmigrated()
+    if not pending:
+        return {"migrated": 0, "note": "nothing to migrate"}
+    approvals = getattr(ctx, "approvals", None)
+    if approvals is None:
+        return {"migrated": 0, "note": "no approvals engine — migration deferred"}
+    try:
+        decision = await approvals.request(
+            kind="tool_call",
+            summary=(
+                f"Curiosity wants to move {len(pending)} mission goal(s) into "
+                "the Goal-Seek engine"
+            ),
+            payload={
+                "tool": "goal_open",
+                "args": {"count": len(pending), "goals": [g["statement"][:80] for g in pending]},
+                "curiosity": {"migration": True},
+            },
+            requested_by_plugin="plugin-curiosity",
+            risk_level="low",
+            plugin="plugin-curiosity",
+        )
+    except Exception as e:  # noqa: BLE001 — timeout/expired: retry next load
+        return {"migrated": 0, "note": f"migration approval not decided: {e}"}
+    if getattr(decision, "decision", None) != "approved":
+        return {"migrated": 0, "note": "owner declined the migration"}
+    migrated = 0
+    for g in pending:
+        try:
+            opened = await engine.engine_open(
+                ctx,
+                statement=g["statement"],
+                definition_of_done=(g.get("expected_result") or "").strip()
+                or f"Owner agrees done: {g['statement']}",
+                deadline=(g.get("target_date") or "").strip() or None,
+                opened_by="owner",  # the migration card IS the owner's approval
+                note="Migrated from curiosity's goal ledger (owner-approved migration).",
+            )
+        except Exception:  # noqa: BLE001 — leave unmigrated; next load retries
+            log.warning("migration open failed for %s", g["id"], exc_info=True)
+            continue
+        gid = str(opened.get("id") or "")
+        if gid:
+            await store.mark_migrated(g["id"], gid)
+            migrated += 1
+    if migrated:
+        await _mirror_to_wiki(ctx, store)
+    return {"migrated": migrated, "of": len(pending)}

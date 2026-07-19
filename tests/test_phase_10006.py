@@ -410,14 +410,14 @@ def test_version_bumped_everywhere():
 
     import plugin_curiosity as pc
 
-    assert pc.CuriosityPlugin.manifest.version == "0.9.14"
+    assert pc.CuriosityPlugin.manifest.version == "0.10.1"
     root = pathlib.Path(pc.__file__).parents[1]
     assert tomllib.loads((root / "pyproject.toml").read_text())["project"][
         "version"
-    ] == "0.9.14"
+    ] == "0.10.1"
     assert tomllib.loads(
         (root / "plugin_curiosity" / "luna-plugin.toml").read_text()
-    )["version"] == "0.9.14"
+    )["version"] == "0.10.1"
 
 
 # -- 0.9.14 tool-layer mission gate ------------------------------------------
