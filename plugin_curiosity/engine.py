@@ -95,9 +95,14 @@ async def engine_open(
     deadline: str | None = None,
     opened_by: str = "agent",
     note: str | None = None,
+    mission_id: str | None = None,
 ) -> dict[str, Any]:
     """Delegate one open to goal-seek. Returns goal-seek's goal dict (raises
-    what goal-seek raises — the caller reports honestly)."""
+    what goal-seek raises — the caller reports honestly). The open may come
+    back stage='proposed' (agent opens await an owner card): that is a valid
+    outcome, not an error — the goal activates by itself on approve.
+    ``opened_via='curiosity'`` (+ mission id) rides along as provenance;
+    engines that don't know the kwarg ignore it."""
     iso_deadline = _iso_or_none(deadline)
     if deadline and not iso_deadline:
         note = f"Target: {deadline}. {note or ''}".strip()
@@ -108,6 +113,8 @@ async def engine_open(
         definition_of_done=definition_of_done,
         deadline=iso_deadline,
         opened_by=opened_by,
+        opened_via="curiosity",
+        **({"mission_id": str(mission_id)} if mission_id else {}),
     )
     gid = out.get("id")
     if note and gid and out.get("status") != "rejected":
@@ -126,6 +133,14 @@ async def engine_list(ctx: Any, *, include_closed: bool = True) -> list[dict[str
     return list(goals) if isinstance(goals, list) else []
 
 
+async def engine_get(ctx: Any, goal_id: str) -> dict[str, Any]:
+    """One live goal with its table summary (v2 carries counts and the
+    needs-you number that the lean list omits). Raises what goal-seek raises;
+    a pre-v2 goal comes back marked ``legacy_v1`` — see goals.py's repoint
+    pass."""
+    return await _call(ctx, "goal_get", goal_id=goal_id)
+
+
 # --- curiosity-shape mapping -------------------------------------------------
 
 # goal-seek stage/outcome → curiosity status. Open stages are all "active"
@@ -140,15 +155,37 @@ _OUTCOME_STATUS = {
 }
 
 
+def _progress_note(g: dict[str, Any]) -> str:
+    """One owner-readable line: '18/50 done · needs you: 2' from a v2 table
+    summary; a closed goal's reason; empty when the engine said nothing."""
+    table = g.get("table")
+    if isinstance(table, dict) and table.get("total") is not None:
+        parts = [f"{table.get('terminal', 0)}/{table.get('total', 0)} done"]
+        waiting = table.get("waiting") or 0
+        if waiting:
+            parts.append(f"{waiting} waiting")
+        needs_you = g.get("needs_you") or 0
+        if needs_you:
+            parts.append(f"needs you: {needs_you}")
+        return " · ".join(parts)
+    reason = g.get("outcome_reason")
+    if isinstance(reason, dict):
+        return reason.get("summary", "")
+    return ""
+
+
 def to_curiosity_dict(g: dict[str, Any]) -> dict[str, Any]:
     """A goal-seek goal rendered in the dict shape curiosity's pane, mirror,
     and activity stream already consume — plus the engine truth fields
-    (``engine``/``stage``/``outcome``) so no surface has to guess."""
+    (``engine``/``stage``/``outcome``) so no surface has to guess. v2 dicts
+    carry a ``table`` summary — it becomes the progress line."""
     stage = g.get("stage") or ""
     outcome = g.get("outcome") or None
     if stage == "closed":
         status = _OUTCOME_STATUS.get(outcome or "", "dropped")
     else:
+        # proposed/active/parked are all "active" to curiosity's 4-status
+        # ledger; the stage field carries the engine truth for richer surfaces
         status = "active"
     deadline = g.get("deadline") or ""
     return {
@@ -157,9 +194,7 @@ def to_curiosity_dict(g: dict[str, Any]) -> dict[str, Any]:
         "why": "",
         "target_date": str(deadline)[:10] if deadline else "",
         "status": status,
-        "progress_note": (g.get("outcome_reason") or {}).get("summary", "")
-        if isinstance(g.get("outcome_reason"), dict)
-        else "",
+        "progress_note": _progress_note(g),
         "expected_result": g.get("definition_of_done") or "",
         "readiness": None,
         "readiness_note": "",

@@ -377,6 +377,15 @@ def schedule_on_load_work(
                     log.info("goal migration on load: %s", result)
             except Exception:  # noqa: BLE001
                 log.warning("goal migration on load failed", exc_info=True)
+            # 0.11.0: heal pointers stranded by the engine's own v1 → v2
+            # upgrade — still-open goals re-open in v2 and the pointer
+            # follows; ended goals become plain history rows. Idempotent.
+            try:
+                result = await goals.repoint_stale_pointers(ctx, _plugin._goals)
+                if result.get("repointed") or result.get("retired"):
+                    log.info("pointer repair on load: %s", result)
+            except Exception:  # noqa: BLE001
+                log.warning("pointer repair on load failed", exc_info=True)
         try:
             if await store.get() is None:
                 return  # no mission — mission_set will register schedules
@@ -440,7 +449,7 @@ if "prompt_overrides" in getattr(PluginManifest, "model_fields", {}):
 class CuriosityPlugin(LunaPlugin):
     manifest = PluginManifest(
         name="plugin-curiosity",
-        version="0.10.1",
+        version="0.11.0",
         description=(
             "Mission-driven curiosity: research, wiki-building, nightly dreams, "
             "self-set goals, weekly mission reviews, proactive reflections, and "
@@ -554,7 +563,7 @@ class CuriosityPlugin(LunaPlugin):
             except Exception:  # noqa: BLE001
                 log.warning("stale-tool sweep failed", exc_info=True)
         register_tools(ctx, self._store)
-        goals.register_tools(ctx, self._goals)
+        goals.register_tools(ctx, self._goals, mission_store=self._store)
         scopes.register_tools(ctx, self._scopes)
         loops.register_tools(ctx, self._loops)
         abilities.register_tools(ctx, self._abilities)

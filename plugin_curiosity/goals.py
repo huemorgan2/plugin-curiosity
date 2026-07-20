@@ -216,8 +216,38 @@ class GoalStore:
             g.migrated_at = datetime.now(UTC)
             await s.commit()
 
+    # -- 0.11.0 pointer repair (engine v1 → v2 upgrade) ----------------------
+
+    async def repoint(self, goal_id: str, new_goalseek_id: str) -> None:
+        """Swing one pointer to the goal's new home (the v2 re-open)."""
+        async with self._sf() as s:
+            g = await s.get(Goal, uuid.UUID(str(goal_id)))
+            if g is None:
+                return
+            g.goalseek_id = str(new_goalseek_id)
+            await s.commit()
+
+    async def retire_pointer(self, goal_id: str, *, status: str,
+                             progress_note: str = "") -> None:
+        """A pointered goal that ended in the old engine becomes a plain
+        history row: pointer cleared, honest final status, note says where it
+        ended. It then reads exactly like pre-migration closed rows."""
+        async with self._sf() as s:
+            g = await s.get(Goal, uuid.UUID(str(goal_id)))
+            if g is None:
+                return
+            g.goalseek_id = ""
+            if status in GOAL_STATUSES:
+                g.status = status
+            if progress_note:
+                g.progress_note = progress_note
+            await s.commit()
+
 
 _STATUS_MARK = {"active": "🎯", "done": "✅", "stalled": "⚠️", "dropped": "✖️"}
+# How many open mission goals get the per-goal counts read (goal_get) on a
+# pane/mirror refresh — missions hold 2-6 goals; the cap only guards runaways.
+_ENRICH_CAP = 12
 _READINESS_MARK = {"green": "🟢", "amber": "🟡", "red": "🔴"}
 
 
@@ -242,11 +272,21 @@ async def list_mission_goals(ctx: PluginContext, store: GoalStore) -> list[dict[
         log.warning("goal-seek list failed — serving pointer snapshots", exc_info=True)
         return [dict(p, engine="goalseek") for p in pointers.values()] + history
     out: list[dict[str, Any]] = []
+    enriched = 0
     for g in live:
         gid = str(g.get("id") or "")
         p = pointers.get(gid)
         if p is None:
             continue  # not a mission goal — someone else's board entry
+        # v2's list is lean (no counts) — goal_get carries the table summary
+        # that becomes the "18/50 done · needs you: 2" progress line. Capped,
+        # best-effort: a failed get falls back to the lean dict.
+        if g.get("stage") != "closed" and "table" not in g and enriched < _ENRICH_CAP:
+            try:
+                g = await engine.engine_get(ctx, gid)
+                enriched += 1
+            except Exception:  # noqa: BLE001 — lean dict still renders
+                log.debug("goal_get enrich failed for %s", gid, exc_info=True)
         mapped = engine.to_curiosity_dict(g)
         # curiosity-only fields ride on the pointer row
         mapped["why"] = p.get("why", "")
@@ -335,8 +375,18 @@ def _register_yielding(ctx: PluginContext, tool_def: ToolDef, handler: Any) -> N
         log.info("tool %s already served by goal-seek — yielded", tool_def.name)
 
 
-def register_tools(ctx: PluginContext, store: GoalStore) -> None:
+def register_tools(ctx: PluginContext, store: GoalStore,
+                   mission_store: Any = None) -> None:
     from . import telemetry
+
+    async def _mission_id() -> str | None:
+        if mission_store is None:
+            return None
+        try:
+            m = await mission_store.get()
+            return str(m["id"]) if m else None
+        except Exception:  # noqa: BLE001 — provenance only, never blocks
+            return None
 
     async def _set(
         statement: str,
@@ -351,6 +401,7 @@ def register_tools(ctx: PluginContext, store: GoalStore) -> None:
                 ctx, store,
                 statement=statement, why=why, target_date=target_date,
                 expected_result=expected_result,
+                mission_id=await _mission_id(),
             )
         try:
             goal = await store.add(
@@ -523,11 +574,14 @@ async def _set_via_goalseek(
     why: str = "",
     target_date: str = "",
     expected_result: str = "",
+    mission_id: str | None = None,
 ) -> dict[str, Any]:
     """goal_set, goal-seek engine: delegate the open (goal-seek's own
     agent-open governance applies — grant or approval card), keep the pointer
     row for mission membership, refresh the mirror. Honest passthrough: a
-    rejected/proposed open is reported exactly as goal-seek said it."""
+    rejected open is reported exactly as goal-seek said it, and a 'proposed'
+    return is a NORMAL outcome (the owner has a card; the goal activates by
+    itself on approve) — the pointer is kept either way."""
     from . import telemetry
 
     statement = (statement or "").strip()
@@ -543,6 +597,7 @@ async def _set_via_goalseek(
             deadline=(target_date or "").strip() or None,
             opened_by="agent",
             note=("Mission goal (curiosity). " + " ".join(note_bits)).strip(),
+            mission_id=mission_id,
         )
     except Exception as e:  # noqa: BLE001 — the agent must hear the real block
         return {"error": f"goal engine rejected the open: {e}", "engine": "goalseek"}
@@ -558,13 +613,21 @@ async def _set_via_goalseek(
             expected_result=expected_result,
         )
     await telemetry.emit_ui_event(ctx, "changed", {"what": "goal"})
+    if opened.get("stage") == "proposed":
+        note = (
+            "opened in the Goal-Seek engine as 'proposed' — the owner has an "
+            "approval card and the goal activates by itself on approve (or "
+            "closes if they decline). Do NOT wait or retry; carry on."
+        )
+    else:
+        note = (
+            "opened in the Goal-Seek engine (stages, policies, heartbeats — "
+            "see the Goals pane); use goal_update/goal_list to work it"
+        )
     return {
         "goal": opened,
         "engine": "goalseek",
-        "note": (
-            "opened in the Goal-Seek engine (stages, policies, heartbeats — "
-            "see the Goals pane); use goal_update/goal_list to work it"
-        ),
+        "note": note,
         "wiki_mirror": await _mirror_to_wiki(ctx, store),
     }
 
@@ -627,3 +690,87 @@ async def migrate_internal_goals(ctx: PluginContext, store: GoalStore) -> dict[s
     if migrated:
         await _mirror_to_wiki(ctx, store)
     return {"migrated": migrated, "of": len(pending)}
+
+
+# v1 outcome → the local status a retired pointer row keeps as history.
+_V1_OUTCOME_STATUS = {
+    "achieved": "done",
+    "abandoned": "dropped",
+    "expired": "dropped",
+    "failed": "stalled",
+    "escalated": "stalled",
+}
+
+# v1 stages that mean "the goal was still being worked" — those re-open in v2.
+_V1_OPEN_STAGES = ("proposed", "active", "waiting", "parked", "closing")
+
+
+async def repoint_stale_pointers(ctx: PluginContext, store: GoalStore) -> dict[str, Any]:
+    """0.11.0: heal pointers left behind by the engine's v1 → v2 upgrade.
+
+    Tenants that migrated under goal-seek 1.x hold ``goalseek_id`` values that
+    name v1 goal rows; goal-seek 2.x serves only v2 goals, so those mission
+    goals would silently vanish from every curiosity read. For each pointer
+    the live list doesn't know: ask ``goal_get`` (2.x answers for v1 ids,
+    marked ``legacy_v1``). Still-open v1 goals re-open in v2 (the owner
+    approved the original migration; this is the same goal moving home —
+    provenance note says so) and the pointer swings to the new id. Goals that
+    ENDED in v1 become plain history rows with their honest final status.
+    Unknown ids stay untouched (snapshots still render). Idempotent by
+    construction; never raises — the on-load path logs the summary."""
+    if engine.resolve_goal_engine(ctx) != engine.GOAL_ENGINE_GOALSEEK:
+        return {"repointed": 0, "retired": 0, "note": "engine is internal"}
+    try:
+        live_ids = {str(g.get("id") or "")
+                    for g in await engine.engine_list(ctx, include_closed=True)}
+    except Exception as e:  # noqa: BLE001 — engine unreadable: try next load
+        return {"repointed": 0, "retired": 0, "note": f"goal list unreadable: {e}"}
+    pointers = await store.pointer_map()
+    stale = {gsid: p for gsid, p in pointers.items() if gsid not in live_ids}
+    if not stale:
+        return {"repointed": 0, "retired": 0, "note": "all pointers live"}
+    repointed = retired = 0
+    for gsid, p in stale.items():
+        try:
+            old = await engine.engine_get(ctx, gsid)
+        except Exception:  # noqa: BLE001 — id unknown everywhere: leave the snapshot
+            log.info("stale pointer %s not found in any engine — left as snapshot", gsid)
+            continue
+        if not old.get("legacy_v1"):
+            continue  # live v2 goal that the list missed — nothing to heal
+        stage = old.get("stage") or ""
+        if stage in _V1_OPEN_STAGES:
+            try:
+                opened = await engine.engine_open(
+                    ctx,
+                    statement=old.get("statement") or p.get("statement") or "",
+                    definition_of_done=(old.get("definition_of_done")
+                                        or p.get("expected_result")
+                                        or "").strip()
+                    or f"Owner agrees done: {old.get('statement') or p.get('statement')}",
+                    deadline=old.get("deadline"),
+                    opened_by="owner",  # the original migration was owner-approved
+                    note=("Re-opened after the goal engine upgrade — this goal "
+                          "moved from the old format; its earlier history "
+                          "stays readable in the old records."),
+                )
+            except Exception:  # noqa: BLE001 — retry on a later load
+                log.warning("repoint re-open failed for %s", gsid, exc_info=True)
+                continue
+            new_id = str(opened.get("id") or "")
+            if new_id:
+                await store.repoint(p["id"], new_id)
+                repointed += 1
+        else:
+            outcome = old.get("outcome") or ""
+            reason = old.get("outcome_reason")
+            summary = reason.get("summary", "") if isinstance(reason, dict) else ""
+            await store.retire_pointer(
+                p["id"],
+                status=_V1_OUTCOME_STATUS.get(outcome, "dropped"),
+                progress_note=summary or "ended in the old goal format",
+            )
+            retired += 1
+    if repointed or retired:
+        await _mirror_to_wiki(ctx, store)
+    return {"repointed": repointed, "retired": retired, "of": len(stale)}
