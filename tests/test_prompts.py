@@ -146,9 +146,12 @@ def test_prompt_budget_sanity():
     # the proactivity rule ride BOTH phase branches — correctness contracts;
     # the alternative was feedback answered with empathy and an untouched
     # playbook. The weekly review gained the feedback-debt red check.
+    # 0.12.0 (jobs-dojo bug 3) raised the kickoff budget: the already-supplied
+    # check (never re-ask for data the owner just gave) is a correctness
+    # contract, not verbosity — the artifact re-asked for a pasted SaaS ledger.
     assert len(DAILY_RESEARCH_TARGET) < 5500
     assert len(WEEKLY_REVIEW_TARGET) < 8800
-    assert len(_KICKOFF_CONTENT.format(statement="x", wiki_note="")) < 13200
+    assert len(_KICKOFF_CONTENT.format(statement="x", wiki_note="")) < 13600
     assert len(prompt_fragment(MISSION, "setup")) < 13100
     wiki_bound = dict(MISSION, wiki_id="grow-signups-abc123")
     assert len(prompt_fragment(wiki_bound, "setup")) < 13300

@@ -436,8 +436,13 @@ def register_tools(ctx: PluginContext, store: MissionStore) -> None:
             "identity_sync": await _write_through_identity(ctx, mission["statement"]),
             "wiki_stubs": await _seed_wiki_stubs(ctx, mission["statement"], wk),
             "schedules": await _sync_schedules(ctx),
-            # fire-and-forget: the kickoff moment posts right after this turn
-            "kickoff": research.spawn_kickoff(ctx, mission["statement"], wiki_slug=slug),
+            # fire-and-forget: the kickoff moment posts right after this turn.
+            # Read the succinct-persona signal HERE (turn session is live) so
+            # the background task carries a flag, not a second DB read.
+            "kickoff": research.spawn_kickoff(
+                ctx, mission["statement"], wiki_slug=slug,
+                compact=await research._prefers_compact(ctx),
+            ),
             "reminder": (
                 "set your one-line status now with current_state_set — the "
                 "owner's pane shows it under the mission statement"

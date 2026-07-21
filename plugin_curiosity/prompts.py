@@ -86,6 +86,37 @@ VALUE_QUESTION_CADENCE = (
     "long silent thinking session either — deliver something small first."
 )
 
+# 0.12.0 (jobs-dojo bug 3): the kickoff artifact re-asked for data the owner
+# supplied one message earlier (pasted a SaaS ledger → artifact asked "what
+# are your ~9 subscriptions?" and marked the goal "🔴 need your list"). The
+# reaction turn composes open-questions/readiness from wiki stubs seeded
+# empty, never consulting the live conversation. This makes that consult a
+# hard precondition.
+ALREADY_SUPPLIED = (
+    "ALREADY-SUPPLIED CHECK: before you ask anything, mark a goal red / 'need "
+    "your list', or write 'the moment you share X' / 'I need X from you', "
+    "re-read what the owner already gave you in THIS conversation — pasted "
+    "data, files, links, numbers, lists, answers. Never re-request supplied "
+    "data; ingest it (record to the right wiki page) and reflect it as "
+    "something you HAVE, not something you await. A goal whose inputs were "
+    "just provided is green/amber, not red; if they gave a list, the "
+    "milestone is 'process the list you gave me', never 'send me the list'."
+)
+
+# 0.12.0 (jobs-dojo bug 4): a compact/succinct persona still got the full
+# multi-screen kickoff artifact. The chat path already respects verbosity;
+# the artifact must too. Gated in research.run_kickoff on the identity row.
+COMPACT_ARTIFACT = (
+    "COMPACT ARTIFACT: the owner prefers short. Collapse the kickoff to four "
+    "parts only — **Brief** (the mission, sharper, one line), **My goals** "
+    "(the dated timeline, one line each, next 2-3 with a readiness color), "
+    "**Open questions** (only the plan-changing ones, if any), and **Next "
+    "move** (one concrete action). Drop the other sections — the full job "
+    "description and success criteria live on their wiki pages for the owner "
+    "to open. Every line earns its place; no preamble, no restating the "
+    "obvious. Still end with the approval ask, in one sentence."
+)
+
 # Phase 10: the materiality rule — refine vs role pivot.
 MATERIALITY_RULE = (
     "THE MATERIALITY RULE: when you learn something, size it before acting. "

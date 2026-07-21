@@ -23,11 +23,14 @@ import asyncio
 import logging
 
 from luna_sdk import PluginContext
+from sqlalchemy import text as _sql
 
 from .prompts import (
     ABILITY_CONTRACT,
+    ALREADY_SUPPLIED,
     ASK_SHAPE,
     CANONICAL_EXAMPLE,
+    COMPACT_ARTIFACT,
     FDE_DOCTRINE,
     HEARTBEAT_CONTRACT,
     HEARTBEAT_NAME,
@@ -126,6 +129,8 @@ say so, and improve it as you learn.
     + SETUP_STAGE_DEFS
     + "\n"
     + TALENTED_HIRE_LAW
+    + "\n"
+    + ALREADY_SUPPLIED
     + """
 
 S0 — understand the JOB sharper than you were told:
@@ -326,8 +331,45 @@ async def run_install_kickoff(ctx: PluginContext) -> bool:
     return True
 
 
+_COMPACT_WORDS = (
+    "succinct", "concise", "compact", "brief", "terse", "short",
+    "keep it short", "keep things short", "no fluff", "to the point",
+    "bullet", "tl;dr", "tldr", "minimal",
+)
+
+
+async def _prefers_compact(ctx: PluginContext) -> bool:
+    """True when the owner's identity/persona asks for short output. Reads the
+    core identity row (verbosity + free-text tone/instructions/persona) — the
+    same signal the chat path already honors. Best-effort: any read failure
+    means fall back to the full artifact."""
+    sf = getattr(ctx, "db_session_factory", None)
+    if sf is None:
+        return False
+    try:
+        async with sf() as s:
+            row = (
+                await s.execute(_sql("SELECT * FROM identity LIMIT 1"))
+            ).mappings().first()
+    except Exception:  # noqa: BLE001 — no identity row / unreachable → full artifact
+        return False
+    if not row:
+        return False
+    d = dict(row)
+    verbosity = str(d.get("verbosity") or "").strip().lower()
+    if verbosity in ("compact", "succinct", "concise", "brief", "short", "low", "terse"):
+        return True
+    blob = " ".join(
+        str(d.get(k) or "") for k in ("tone", "instructions", "persona")
+    ).lower()
+    return any(w in blob for w in _COMPACT_WORDS)
+
+
 async def run_kickoff(
-    ctx: PluginContext, statement: str, wiki_slug: str | None = None
+    ctx: PluginContext,
+    statement: str,
+    wiki_slug: str | None = None,
+    compact: bool = False,
 ) -> None:
     """Post the kickoff moment. Runs as a fire-and-forget task from
     mission_set; the short delay lets the mission_set turn finish streaming
@@ -345,12 +387,15 @@ async def run_kickoff(
             "to EVERY wiki_* call in this turn; pages written elsewhere are "
             "invisible to your mission surfaces.\n"
         )
+    content = _KICKOFF_CONTENT.format(statement=statement, wiki_note=wiki_note)
+    if compact:
+        content += "\n\n" + COMPACT_ARTIFACT
     await asyncio.sleep(KICKOFF_DELAY_S)
     for attempt in range(1, KICKOFF_ATTEMPTS + 1):
         try:
             result = await ctx.send_muted_message(
                 KICKOFF_TITLE,
-                _KICKOFF_CONTENT.format(statement=statement, wiki_note=wiki_note),
+                content,
                 channel="moment",
                 source="curiosity",
                 tools=KICKOFF_TOOLS,
@@ -475,11 +520,14 @@ async def run_heartbeat_nudge(ctx: PluginContext) -> bool:
 
 
 def spawn_kickoff(
-    ctx: PluginContext, statement: str, wiki_slug: str | None = None
+    ctx: PluginContext,
+    statement: str,
+    wiki_slug: str | None = None,
+    compact: bool = False,
 ) -> str:
     try:
         asyncio.get_running_loop().create_task(  # noqa: RUF006
-            run_kickoff(ctx, statement, wiki_slug=wiki_slug)
+            run_kickoff(ctx, statement, wiki_slug=wiki_slug, compact=compact)
         )
         return "started"
     except RuntimeError:
