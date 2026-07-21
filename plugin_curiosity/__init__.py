@@ -825,11 +825,13 @@ class CuriosityPlugin(LunaPlugin):
             return [blocked_fragment(self._missing)]
         if not self._activated:
             return []
-        mission = await self._store.get()
-        phase = None
-        if mission is not None and self._scopes is not None:
-            state = await self._scopes.state()
-            phase = state["agent_phase"] if state else None
+        # 045/phase03 (2c): mission + scope state ran serially (~217 ms gating
+        # core's time-to-first-token) — fetch both concurrently.
+        if self._scopes is not None:
+            mission, state = await asyncio.gather(self._store.get(), self._scopes.state())
+        else:
+            mission, state = await self._store.get(), None
+        phase = state["agent_phase"] if (mission is not None and state) else None
         sections = [prompt_fragment(mission, phase, slot_mode=_CLAIMS_SUPPORTED)]
         # 0.10.0: with the goal engine flipped, say so — the agent must know
         # its goals live in goal-seek (stages/policies, the Goals pane) and
