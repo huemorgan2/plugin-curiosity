@@ -42,7 +42,33 @@ window.addEventListener('message', (e) => {
     if (d.event === 'changed') scheduleLoad();
     if (d.event === 'heartbeat') scheduleLoad();
   }
+  // 0.16.1: the shell acks luna-chat messages (luna 065) — an ack means
+  // "Change it" can hand the owner the composer instead of a muted moment.
+  if (d.type === 'luna-chat-ack') CHAT_BRIDGE = true;
 });
+
+// ---- chat bridge (065, 0.16.1) ----------------------------------------------
+// "Change it" should end with the owner typing, not the agent talking. On new
+// cores the shell answers a luna-chat ping with luna-chat-ack; then Change-it
+// buttons prefill + focus the composer. Old cores never ack → the muted-moment
+// fallback below keeps working.
+
+let CHAT_BRIDGE = false;
+
+function pingChatBridge() {
+  try { window.parent.postMessage({ type: 'luna-chat', action: 'ping' }, window.location.origin); } catch {}
+}
+pingChatBridge();
+
+/** Prefill + focus the shell composer. Returns false when the bridge is
+ * absent (old core) — caller falls back to a muted moment. */
+function prefillChat(text) {
+  if (!CHAT_BRIDGE) return false;
+  try {
+    window.parent.postMessage({ type: 'luna-chat', action: 'prefill', text }, window.location.origin);
+    return true;
+  } catch { return false; }
+}
 
 function requestFreshToken(prev, timeoutMs = 1500) {
   return new Promise((resolve) => {
@@ -226,7 +252,13 @@ function renderHero(h, o) {
     const bc = $('btn-confirm'), bx = $('btn-change-mission');
     bc.disabled = false; bx.disabled = false;
     bc.onclick = () => sendMoment(bc, SAY.confirm(h.mission_id), 'Mission confirmed', MOMENT_TOOLS.confirm);
-    bx.onclick = () => sendMoment(bx, SAY.changeMission(h.mission_id), 'Mission change requested');
+    bx.onclick = () => {
+      // 0.16.1: prefer handing the owner the composer (luna 065); muted
+      // moment only on cores without the bridge.
+      if (!prefillChat('Change the mission: ')) {
+        sendMoment(bx, SAY.changeMission(h.mission_id), 'Mission change requested');
+      }
+    };
   }
   show('hero-said', !!h.you_said);
   if (h.you_said) $('hero-said').innerHTML = `<i>You said:</i> “${esc(h.you_said)}”`;
@@ -297,7 +329,11 @@ function renderNowNext(n) {
     b.onclick = () => sendMoment(b, SAY.go(b.dataset.go, b.dataset.what), 'Go-ahead given', MOMENT_TOOLS.go);
   });
   grid.querySelectorAll('[data-change]').forEach((b) => {
-    b.onclick = () => sendMoment(b, SAY.changeStep(b.dataset.change, b.dataset.what), 'Step change requested');
+    b.onclick = () => {
+      if (!prefillChat(`Change this step: ${b.dataset.what} — `)) {
+        sendMoment(b, SAY.changeStep(b.dataset.change, b.dataset.what), 'Step change requested');
+      }
+    };
   });
 }
 
