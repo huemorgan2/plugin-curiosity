@@ -181,7 +181,7 @@ def test_slot_mode_fragment_drops_ordering_prose():
     assert "OVERRIDES its ordering" in legacy
     assert "OVERRIDES its ordering" not in slot
     # everything else survives in both
-    for phrase in ("no active mission yet", "EVERY reply", "mission_set IN THAT SAME TURN"):
+    for phrase in ("no active mission yet", "EVERY reply", "mission_draft IN THAT SAME TURN"):
         assert phrase in legacy and phrase in slot
 
 

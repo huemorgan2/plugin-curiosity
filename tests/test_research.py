@@ -22,26 +22,36 @@ def fast_kickoff(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_mission_set_spawns_kickoff_moment(ctx):
+async def test_mission_set_spawns_brief_moment(ctx):
+    # 11.001/M1: mission_set fires the INSTANT BRIEF; the deep pass waits
+    # behind the confirm gate (covered in test_intake_confirm.py)
     r = await call(ctx, "mission_set", statement="grow signups")
-    assert r["kickoff"] == "started"
+    assert r["kickoff"] == "brief started"
     for _ in range(5):
         await asyncio.sleep(0)  # let the fire-and-forget task run
+    (post,) = [p for p in ctx.muted_posts if p["title"] == research.BRIEF_TITLE]
+    assert post["channel"] == "moment"
+    assert post["source"] == "curiosity"
+    assert "grow signups" in post["content"]
+    assert post["tools"] == research.BRIEF_TOOLS
+
+
+@pytest.mark.asyncio
+async def test_deep_kickoff_artifact_shape(ctx):
+    await research.run_kickoff(ctx, "grow signups")
     (post,) = [p for p in ctx.muted_posts if p["title"] == research.KICKOFF_TITLE]
     assert post["channel"] == "moment"
     assert post["source"] == "curiosity"
     assert "grow signups" in post["content"]
     # the artifact shape is instructed (phase 10 setup arc): brief + job
-    # description + ladder + timeline + open questions
-    for marker in ("Brief", "My job description", "My ladder", "My goals", "Open questions"):
+    # description + ladder + milestones + open questions
+    for marker in ("Brief", "My job description", "My ladder", "My milestones", "Open questions"):
         assert marker in post["content"]
 
 
 @pytest.mark.asyncio
 async def test_kickoff_tools_are_research_scoped(ctx):
-    await call(ctx, "mission_set", statement="grow signups")
-    for _ in range(5):
-        await asyncio.sleep(0)
+    await research.run_kickoff(ctx, "grow signups")
     (post,) = [p for p in ctx.muted_posts if p["title"] == research.KICKOFF_TITLE]
     tools = post["tools"]
     assert "web_search" in tools and "wiki_write" in tools and "wiki_cite" in tools

@@ -361,6 +361,21 @@ def schedule_on_load_work(
             await maybe_send_install_kickoff(ctx, store)
         except Exception:  # noqa: BLE001
             log.warning("install kickoff on load failed", exc_info=True)
+        # 11.001: intake janitors — BEFORE the missionless early-return below,
+        # because the draft reaper can be the thing that creates the mission
+        # (a >24 h draft promotes verbatim through the full mission_set path).
+        try:
+            result = await mission.reap_stale_draft(ctx, store)
+            if result not in ("no draft", "draft fresh"):
+                log.info("draft reaper on load: %s", result)
+        except Exception:  # noqa: BLE001
+            log.warning("draft reaper on load failed", exc_info=True)
+        try:
+            result = await research.maybe_start_deep_kickoff(ctx, store)
+            if result == "started":
+                log.info("deep kickoff started on load")
+        except Exception:  # noqa: BLE001
+            log.warning("deep kickoff check on load failed", exc_info=True)
         # 0.10.0: goal-engine handover. With goal-seek installed and open
         # internal goals unmigrated, run the one-time pointer conversion —
         # under a single owner approval card; declined/undecided retries on
@@ -449,7 +464,7 @@ if "prompt_overrides" in getattr(PluginManifest, "model_fields", {}):
 class CuriosityPlugin(LunaPlugin):
     manifest = PluginManifest(
         name="plugin-curiosity",
-        version="0.12.1",
+        version="0.13.0",
         description=(
             "Mission-driven curiosity: research, wiki-building, nightly dreams, "
             "self-set goals, weekly mission reviews, proactive reflections, and "
@@ -590,7 +605,7 @@ class CuriosityPlugin(LunaPlugin):
                 hooks.register("prompt.assemble", self._occupy_prompt, priority=60)
             except Exception:  # noqa: BLE001
                 log.warning("prompt.assemble registration failed", exc_info=True)
-        log.info("plugin-curiosity loaded (tools=23)")
+        log.info("plugin-curiosity loaded (tools=25)")
 
     def _register_config_section(self, ctx: PluginContext) -> None:
         """0.10.0 (phase-05 pattern, proven in goal-seek): a tiny read-only
@@ -816,9 +831,32 @@ class CuriosityPlugin(LunaPlugin):
         pos = secs.index(anchor) + 1
         secs[pos:pos] = own
 
+    def _spawn_intake_janitors(self) -> None:
+        """11.001: fire-and-forget per-turn janitors — the 24 h draft reaper
+        and the confirm-gate timeout both key on 'next contact', and a turn
+        IS contact. Cheap early-exits inside; never blocks prompt assembly."""
+        if self._ctx is None or self._store is None or self._missing:
+            return
+        ctx, store = self._ctx, self._store
+
+        async def _run() -> None:
+            try:
+                result = await mission.reap_stale_draft(ctx, store)
+                if result == "promoted":
+                    log.info("draft reaper: stale draft promoted on contact")
+                await research.maybe_start_deep_kickoff(ctx, store)
+            except Exception:  # noqa: BLE001
+                log.debug("intake janitor failed", exc_info=True)
+
+        try:
+            asyncio.get_running_loop().create_task(_run())  # noqa: RUF006
+        except RuntimeError:
+            pass
+
     async def prompt_sections(self) -> list[str]:
         if self._store is None:
             return []
+        self._spawn_intake_janitors()
         # 9.002A: while the dependency gate is closed, the ONLY fragment is
         # the paused note — the agent knows it's paused and can explain why.
         if self._missing:

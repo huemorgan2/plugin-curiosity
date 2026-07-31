@@ -101,6 +101,56 @@ KICKOFF_TOOLS = [
 
 KICKOFF_TITLE = "Mission kickoff"
 
+# --- 11.001/M1: the kickoff split. mission_set posts an INSTANT BRIEF -------
+# --- (~3 s, a handful of calls, owner watching); the deep S0→S2 pass waits --
+# --- for mission_confirm, an owner "go", or the 12 h timeout-proceed. -------
+
+BRIEF_TITLE = "Mission first look"
+
+# deliberately tiny: the brief must land while the owner is still looking
+BRIEF_TOOLS = [
+    "mission_get",
+    "web_search",
+    "web_fetch",
+]
+
+BRIEF_CONTENT = """\
+Your mission was just set: {statement}
+
+This turn is your INSTANT BRIEF — the owner is watching right now, so speed
+beats depth: a HANDFUL of tool calls at most (one or two quick web_search /
+web_fetch if a fact would sharpen it; zero is fine), no wiki writes, no
+goals, no scopes — your deep pass handles all of that later.
+
+Reply with three short parts, plain words, your own voice:
+1. **What I heard** — the mission restated in your own words, one line,
+   sharper than it was said.
+2. **First look** — one genuinely interesting observation you can already
+   offer (from what you know, or one quick search).
+3. **3 things I could do for you** — three concrete, everyday pieces of
+   work you could own under this mission, one line each.
+
+Close by asking for their yes: if this direction is right, they say "go"
+and you dig in properly — research, your job description, milestones. Say
+plainly that if they're busy you'll proceed on your own within about half a
+day, so their yes just gets them a say sooner. One short question, warm,
+done.
+"""
+
+# how long an unconfirmed mission waits before the deep pass proceeds anyway
+CONFIRM_TIMEOUT_H = 12.0
+
+CONFIRM_NOTE_CONFIRMED = "\nThe owner confirmed the direction — go.\n"
+CONFIRM_NOTE_TIMEOUT = (
+    "\nThe owner never replied to your first-look brief; after "
+    f"{CONFIRM_TIMEOUT_H:.0f} hours you proceed by default. Open your "
+    "artifact by saying so plainly — one line, no guilt — and invite them "
+    "to redirect you at any time.\n"
+)
+
+# once-per-mission guard for the deep pass, persisted in the Flag register
+_DEEP_KICKOFF_FLAG = "deep_kickoff_started"
+
 # breathing room so the mission_set turn finishes streaming before the
 # kickoff reaction turn starts competing for the loop (tests set this to 0)
 KICKOFF_DELAY_S = 3.0
@@ -113,12 +163,13 @@ KICKOFF_RETRY_S = 90.0
 
 _KICKOFF_CONTENT = (
     """\
-Your mission was just set: {statement}
-
-You are in SETUP phase, stage S0 — the setup arc starts NOW, in this turn
+Your mission: {statement}
+{confirm_note}
+You are in SETUP phase — the DEEP setup pass starts NOW, in this turn
 (S0→S2, ~18-24 tool calls; depth comes later, from your own heartbeat and
-the daily schedule). Everything you produce in this turn is a LIVING DRAFT —
-say so, and improve it as you learn.
+the daily schedule). The owner already saw your first-look brief; this pass
+builds the real scaffolding behind it. Everything you produce in this turn
+is a LIVING DRAFT — say so, and improve it as you learn.
 {wiki_note}"""
     + OWNER_WORDS
     + "\n"
@@ -175,13 +226,16 @@ S1 — the ladder, the inventory, first value:
    only, NO deep corpus until the owner approves your job description. value_log_add
    anything real you delivered (evidence: the wiki page).
 
-S2 — goals, your own drive, and the post:
-9. COMMIT to 5-8 dated goals with goal_set — together they must cover EVERY
-   ability, and each must trace to a criterion on [[success-criteria]] (a
-   goal that serves no success criterion is scope creep — cut it). They form
-   a timeline, not a wish list. For the NEXT 2-3 goals set expected_result
-   (what done looks like) and readiness (green/amber/red) with a one-line
-   readiness_note: what you have / what's missing.
+S2 — milestones, your own drive, and the post:
+9. COMMIT to 3-5 MILESTONES with goal_set — the big steps between you and
+   the mission visibly delivering, each one owner-readable ("first draft
+   replies flowing", not "research phase 2"). Together they must cover your
+   abilities, and each must trace to a criterion on [[success-criteria]] (a
+   milestone that serves no criterion is scope creep — cut it). No dates
+   required — order and readiness beat guessed deadlines. For the NEXT 1-2
+   milestones set expected_result (what done looks like) and readiness
+   (green/amber/red) with a one-line readiness_note: what you have / what's
+   missing.
 10. Ask ONLY plan-changing questions (would the answer change your plan? if
    not, don't ask). Open each as a loop — loop_open(kind='question'),
    stating what it unblocks — and record it with wiki_ask. ZERO access asks
@@ -205,8 +259,8 @@ S2 — goals, your own drive, and the post:
      in the owner's terms.
    - **My ladder** — the abilities, each one line ([[role-charter]] holds
      the scopes beneath them).
-   - **My goals** — the dated timeline: "by <date>: <goal>", 5-8 entries;
-     the next 2-3 with their readiness color and what's missing.
+   - **My milestones** — the 3-5 big steps, in order; the next 1-2 with
+     their readiness color and what's missing.
    - **Where I am** — phase: setup — then the gap list: what still stands
      between you and qualified, short and honest.
    - **Access plan** — ranked by unlock-per-human-cost. You will ask for AT
@@ -370,55 +424,76 @@ async def _prefers_compact(ctx: PluginContext) -> bool:
     return any(w in blob for w in _COMPACT_WORDS)
 
 
-async def run_kickoff(
-    ctx: PluginContext,
-    statement: str,
-    wiki_slug: str | None = None,
-    compact: bool = False,
+async def _post_moment_with_retries(
+    ctx: PluginContext, title: str, content: str, tools: list[str]
 ) -> None:
-    """Post the kickoff moment. Runs as a fire-and-forget task from
-    mission_set; the short delay lets the mission_set turn finish streaming
-    before the kickoff reaction turn starts competing for the loop.
+    """Post one kickoff-family moment with real retry spacing.
 
     post_muted_message swallows turn exceptions and returns an ``error`` key
     instead (a dead turn otherwise looks like a turn that chose silence), so
     failure is detected from the result, not an exception. Retrying re-posts
     the moment message too — acceptable: a failed turn means the first moment
     was never reacted to, and a lost kickoff strands the mission at S0."""
-    wiki_note = ""
-    if wiki_slug:
-        wiki_note = (
-            f"\nYour mission wiki is '{wiki_slug}' — pass wiki='{wiki_slug}' "
-            "to EVERY wiki_* call in this turn; pages written elsewhere are "
-            "invisible to your mission surfaces.\n"
-        )
-    content = _KICKOFF_CONTENT.format(statement=statement, wiki_note=wiki_note)
-    if compact:
-        content += "\n\n" + COMPACT_ARTIFACT
     await asyncio.sleep(KICKOFF_DELAY_S)
     for attempt in range(1, KICKOFF_ATTEMPTS + 1):
         try:
             result = await ctx.send_muted_message(
-                KICKOFF_TITLE,
+                title,
                 content,
                 channel="moment",
                 source="curiosity",
-                tools=KICKOFF_TOOLS,
+                tools=tools,
             )
         except Exception:  # noqa: BLE001
-            log.warning("mission kickoff failed (attempt %s)", attempt, exc_info=True)
+            log.warning("%s failed (attempt %s)", title, attempt, exc_info=True)
             result = None
         if result is not None and not result.get("error"):
-            log.info("mission kickoff moment posted")
+            log.info("%s moment posted", title)
             return
         if attempt < KICKOFF_ATTEMPTS:
             log.warning(
-                "mission kickoff turn died (attempt %s): %s",
+                "%s turn died (attempt %s): %s",
+                title,
                 attempt,
                 (result or {}).get("error", "exception"),
             )
             await asyncio.sleep(KICKOFF_RETRY_S)
-    log.warning("mission kickoff abandoned after %s attempts", KICKOFF_ATTEMPTS)
+    log.warning("%s abandoned after %s attempts", title, KICKOFF_ATTEMPTS)
+
+
+def _wiki_note(wiki_slug: str | None) -> str:
+    if not wiki_slug:
+        return ""
+    return (
+        f"\nYour mission wiki is '{wiki_slug}' — pass wiki='{wiki_slug}' "
+        "to EVERY wiki_* call in this turn; pages written elsewhere are "
+        "invisible to your mission surfaces.\n"
+    )
+
+
+async def run_brief(ctx: PluginContext, statement: str) -> None:
+    """The instant brief — fire-and-forget from mission_set."""
+    await _post_moment_with_retries(
+        ctx, BRIEF_TITLE, BRIEF_CONTENT.format(statement=statement), BRIEF_TOOLS
+    )
+
+
+async def run_kickoff(
+    ctx: PluginContext,
+    statement: str,
+    wiki_slug: str | None = None,
+    compact: bool = False,
+    confirm_note: str = "",
+) -> None:
+    """The DEEP kickoff pass (S0→S2). Fired by mission_confirm or the 12 h
+    timeout-proceed — never directly by mission_set anymore (11.001)."""
+    content = _KICKOFF_CONTENT.format(
+        statement=statement, wiki_note=_wiki_note(wiki_slug),
+        confirm_note=confirm_note,
+    )
+    if compact:
+        content += "\n\n" + COMPACT_ARTIFACT
+    await _post_moment_with_retries(ctx, KICKOFF_TITLE, content, KICKOFF_TOOLS)
 
 
 # --- 9.001G: the heartbeat safety net — notice a missing heartbeat, nudge ---
@@ -530,10 +605,129 @@ def spawn_kickoff(
     wiki_slug: str | None = None,
     compact: bool = False,
 ) -> str:
+    """mission_set's fire-and-forget: since 11.001 this spawns the INSTANT
+    BRIEF — the deep S0→S2 pass waits behind the confirm gate. Signature kept
+    from the pre-split API (wiki_slug/compact ride the deep pass only)."""
     try:
         asyncio.get_running_loop().create_task(  # noqa: RUF006
-            run_kickoff(ctx, statement, wiki_slug=wiki_slug, compact=compact)
+            run_brief(ctx, statement)
+        )
+        return "brief started"
+    except RuntimeError:
+        return "no event loop — kickoff skipped"
+
+
+# --- 11.001: the confirm gate — deep pass starts exactly once per mission ---
+
+_deep_claims: set[str] = set()  # in-process dedupe alongside the DB flag
+
+
+def _deep_flag_key(mission_id: str) -> str:
+    return f"{_DEEP_KICKOFF_FLAG}:{mission_id}"
+
+
+async def _deep_flag_get(sf, mission_id: str) -> str | None:
+    from .models import Flag
+
+    async with sf() as s:
+        row = await s.get(Flag, _deep_flag_key(mission_id))
+        return row.value if row is not None else None
+
+
+async def _deep_flag_set(sf, mission_id: str, value: str) -> None:
+    from .models import Flag
+
+    async with sf() as s:
+        key = _deep_flag_key(mission_id)
+        row = await s.get(Flag, key)
+        if row is None:
+            s.add(Flag(key=key, value=value))
+        else:
+            row.value = value
+        await s.commit()
+
+
+async def spawn_deep_kickoff_once(
+    ctx: PluginContext,
+    sf,
+    mission: dict,
+    *,
+    compact: bool = False,
+    confirm_note: str = CONFIRM_NOTE_CONFIRMED,
+) -> str:
+    """Start the deep pass at most once per mission. In-process claim plus a
+    persisted flag: concurrent callers (mission_confirm racing the timeout
+    janitor) converge on a single spawn."""
+    mid = str(mission["id"])
+    if mid in _deep_claims:
+        return "already started"
+    if await _deep_flag_get(sf, mid) is not None:
+        _deep_claims.add(mid)
+        return "already started"
+    _deep_claims.add(mid)
+    await _deep_flag_set(sf, mid, "started")
+    try:
+        asyncio.get_running_loop().create_task(  # noqa: RUF006
+            run_kickoff(
+                ctx,
+                mission["statement"],
+                wiki_slug=mission.get("wiki_id"),
+                compact=compact,
+                confirm_note=confirm_note,
+            )
         )
         return "started"
     except RuntimeError:
-        return "no event loop — kickoff skipped"
+        return "no event loop — deep kickoff skipped"
+
+
+def _parse_created(value) -> "datetime | None":
+    from datetime import UTC as _UTC
+    from datetime import datetime as _dt
+
+    if not value:
+        return None
+    try:
+        parsed = _dt.fromisoformat(str(value))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=_UTC)
+
+
+async def maybe_start_deep_kickoff(ctx: PluginContext, store) -> str:
+    """The confirm-gate janitor (on-load + per-turn 'next contact'):
+    - a CONFIRMED mission whose deep pass never spawned (process died between
+      confirm and spawn) starts it now;
+    - an UNCONFIRMED mission older than CONFIRM_TIMEOUT_H proceeds by
+      default, with the timeout note;
+    - a mission already past S0 (or in work phase) predates the split or ran
+      its pass — grandfathered, never re-fired."""
+    from datetime import UTC as _UTC
+    from datetime import datetime as _dt
+
+    mission = await store.get()
+    if mission is None:
+        return "no mission"
+    sf = store._sf  # noqa: SLF001
+    mid = str(mission["id"])
+    if mission.get("setup_stage") not in (None, "S0") or mission.get("agent_phase") == "work":
+        if mid not in _deep_claims:
+            _deep_claims.add(mid)
+            if await _deep_flag_get(sf, mid) is None:
+                await _deep_flag_set(sf, mid, "grandfathered")
+        return "already past S0"
+    if mission.get("confirmed_at"):
+        return await spawn_deep_kickoff_once(
+            ctx, sf, mission, compact=await _prefers_compact(ctx),
+            confirm_note=CONFIRM_NOTE_CONFIRMED,
+        )
+    created = _parse_created(mission.get("created_at"))
+    if created is None:
+        return "no created_at"
+    age_h = (_dt.now(_UTC) - created).total_seconds() / 3600.0
+    if age_h < CONFIRM_TIMEOUT_H:
+        return "waiting for confirmation"
+    return await spawn_deep_kickoff_once(
+        ctx, sf, mission, compact=await _prefers_compact(ctx),
+        confirm_note=CONFIRM_NOTE_TIMEOUT,
+    )

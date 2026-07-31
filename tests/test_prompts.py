@@ -38,8 +38,9 @@ def test_kickoff_setup_arc_shape():
     assert "ALL seven kinds" in t and "workflow_approval" in t
     assert "stub/summary wiki depth" in t and "NO deep corpus" in t
     assert "WRONG: 'connect me to AdWords" in t
-    # S2: big-batch goals + ratification line — kickoff only
-    assert "5-8 dated goals" in t and "cover EVERY" in t
+    # S2: milestone commit + ratification line — kickoff only (11.001/M1:
+    # dated-goal batch replaced by 3-5 owner-readable milestones)
+    assert "3-5 MILESTONES" in t and "readiness" in t
     assert "push back now" in t
     assert "stage_set('S2')" in t
 
@@ -151,10 +152,13 @@ def test_prompt_budget_sanity():
     # contract, not verbosity — the artifact re-asked for a pasted SaaS ledger.
     assert len(DAILY_RESEARCH_TARGET) < 5500
     assert len(WEEKLY_REVIEW_TARGET) < 8800
-    assert len(_KICKOFF_CONTENT.format(statement="x", wiki_note="")) < 13600
-    assert len(prompt_fragment(MISSION, "setup")) < 13100
+    # 0.13.0 (11.001/M1) nudged the budget: the milestone mandate (readiness
+    # colors, expected_result on the next 1-2) replaced the dated-goal batch
+    assert len(_KICKOFF_CONTENT.format(statement="x", wiki_note="", confirm_note="")) < 13800
+    # 0.13.0: an unconfirmed mission carries the confirm-gate line (~350 chars)
+    assert len(prompt_fragment(MISSION, "setup")) < 13500
     wiki_bound = dict(MISSION, wiki_id="grow-signups-abc123")
-    assert len(prompt_fragment(wiki_bound, "setup")) < 13300
+    assert len(prompt_fragment(wiki_bound, "setup")) < 13700
     assert len(prompt_fragment(wiki_bound, "work")) < 6100
 
 

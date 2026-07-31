@@ -19,14 +19,15 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 
 from luna_sdk import PluginContext, ToolDef
 
 from . import dream, gating, prompts, research, review, telemetry, wikibind
-from .models import Mission
+from .models import Mission, MissionDraft
 from .scopes import STAGE_LABELS
 
 log = logging.getLogger("plugin-curiosity")
@@ -160,9 +161,14 @@ def _mission_dict(m: Mission) -> dict[str, Any]:
     # bare code to owners ("still at S0") — a prompt rule alone didn't stop it,
     # so the dict itself carries the words to say.
     words = STAGE_LABELS.get(m.setup_stage)
+    confirmed = getattr(m, "confirmed_at", None)
+    if confirmed is not None and confirmed.tzinfo is None:  # SQLite loses tzinfo
+        confirmed = confirmed.replace(tzinfo=UTC)
     return {
         "id": str(m.id),
         "statement": m.statement,
+        "origin_statement": getattr(m, "origin_statement", "") or "",
+        "confirmed_at": confirmed.isoformat() if confirmed else None,
         "autonomy_rung": m.autonomy_rung,
         "risk_ceiling": m.risk_ceiling,
         "active": m.active,
@@ -182,7 +188,13 @@ class MissionStore:
     def __init__(self, session_factory) -> None:
         self._sf = session_factory
 
-    async def set(self, statement: str, rung: int = 1, risk_ceiling: str = "low") -> dict[str, Any]:
+    async def set(
+        self,
+        statement: str,
+        rung: int = 1,
+        risk_ceiling: str = "low",
+        origin_statement: str = "",
+    ) -> dict[str, Any]:
         statement = statement.strip()
         if not statement:
             raise ValueError("mission statement must be non-empty")
@@ -191,12 +203,96 @@ class MissionStore:
         if risk_ceiling not in RISK_CEILINGS:
             raise ValueError(f"risk_ceiling must be one of {RISK_CEILINGS}")
         async with self._sf() as s:
+            # 11.001: an unconsumed intake draft supplies the origin when the
+            # caller didn't — the owner's verbatim words are never lost; every
+            # draft is consumed by the set either way.
+            if not origin_statement:
+                d = (
+                    await s.execute(
+                        select(MissionDraft).order_by(MissionDraft.created_at).limit(1)
+                    )
+                ).scalar_one_or_none()
+                if d is not None:
+                    origin_statement = d.verbatim
+            await s.execute(delete(MissionDraft))
             # single active mission: deactivate any predecessor
             await s.execute(update(Mission).where(Mission.active).values(active=False))
-            m = Mission(statement=statement, autonomy_rung=rung, risk_ceiling=risk_ceiling)
+            m = Mission(
+                statement=statement,
+                origin_statement=origin_statement.strip(),
+                autonomy_rung=rung,
+                risk_ceiling=risk_ceiling,
+            )
             s.add(m)
             await s.commit()
             return _mission_dict(m)
+
+    async def draft(self, verbatim: str) -> dict[str, Any]:
+        """Store the owner's mission words the instant they land. Convergent:
+        if a draft already exists the OLDEST wins — the second call returns it
+        instead of adding a rival (concurrent turns race any list-before-
+        create; oldest-wins converges)."""
+        verbatim = verbatim.strip()
+        if not verbatim:
+            raise ValueError("draft must be non-empty — the owner's words as stated")
+        async with self._sf() as s:
+            existing = (
+                await s.execute(
+                    select(MissionDraft).order_by(MissionDraft.created_at).limit(1)
+                )
+            ).scalar_one_or_none()
+            if existing is not None:
+                return self._draft_dict(existing)
+            d = MissionDraft(verbatim=verbatim)
+            s.add(d)
+            await s.commit()
+            return self._draft_dict(d)
+
+    async def draft_get(self) -> dict[str, Any] | None:
+        """The oldest (winning) draft, or None."""
+        async with self._sf() as s:
+            d = (
+                await s.execute(
+                    select(MissionDraft).order_by(MissionDraft.created_at).limit(1)
+                )
+            ).scalar_one_or_none()
+            return self._draft_dict(d) if d else None
+
+    async def clear_drafts(self) -> int:
+        async with self._sf() as s:
+            result = await s.execute(delete(MissionDraft))
+            await s.commit()
+            return result.rowcount or 0
+
+    async def confirm(self) -> dict[str, Any]:
+        """Stamp confirmed_at on the active mission (idempotent — an already
+        confirmed mission keeps its original stamp)."""
+        async with self._sf() as s:
+            m = (
+                await s.execute(select(Mission).where(Mission.active))
+            ).scalar_one_or_none()
+            if m is None:
+                raise LookupError("no active mission — nothing to confirm")
+            if m.confirmed_at is None:
+                m.confirmed_at = datetime.now(UTC)
+                await s.commit()
+            return _mission_dict(m)
+
+    @staticmethod
+    def _draft_dict(d: MissionDraft) -> dict[str, Any]:
+        created = d.created_at
+        age_hours: float | None = None
+        if created is not None:
+            if created.tzinfo is None:  # SQLite loses tzinfo
+                created = created.replace(tzinfo=UTC)
+            age_hours = (datetime.now(UTC) - created).total_seconds() / 3600.0
+        return {
+            "id": str(d.id),
+            "verbatim": d.verbatim,
+            "created_at": d.created_at.isoformat() if d.created_at else None,
+            # server-computed: agents have no clock
+            "age_hours": round(age_hours, 2) if age_hours is not None else None,
+        }
 
     async def refine(
         self,
@@ -415,10 +511,49 @@ async def _sync_schedules(ctx: PluginContext) -> str:
     return f"created {created}, updated {updated}"
 
 
+# 11.001/M1: how long an unconsumed intake draft may sit before the reaper
+# promotes it to the mission AS STATED. The owner said the words; a dead
+# conversation must not orphan them.
+DRAFT_REAP_AGE_H = 24.0
+
+
+async def reap_stale_draft(ctx: PluginContext, store: MissionStore) -> str:
+    """Promote a >24 h-old intake draft to the mission, verbatim, through the
+    full mission_set tool path (identity, wiki, schedules, kickoff). Runs from
+    on-load work and per-turn fire-and-forget — concurrent calls converge:
+    store.set keeps a single active mission and consumes every draft, and the
+    oldest draft is the only one either call promotes."""
+    if await store.get() is not None:
+        n = await store.clear_drafts()
+        return f"cleared {n} draft(s): mission active" if n else "no draft"
+    d = await store.draft_get()
+    if d is None:
+        return "no draft"
+    if (d["age_hours"] or 0) < DRAFT_REAP_AGE_H:
+        return "draft fresh"
+    try:
+        setter = ctx.tool_registry.get("mission_set").handler
+    except Exception:  # noqa: BLE001 - registry not ready; retry next pass
+        return "mission_set unavailable"
+    result = await setter(statement=d["verbatim"], origin_statement=d["verbatim"])
+    if isinstance(result, dict) and result.get("error"):
+        return f"promotion failed: {result['error']}"
+    log.info("stale mission draft promoted verbatim after %sh", DRAFT_REAP_AGE_H)
+    return "promoted"
+
+
 def register_tools(ctx: PluginContext, store: MissionStore) -> None:
-    async def _set(statement: str, rung: int = 1, risk_ceiling: str = "low") -> dict[str, Any]:
+    async def _set(
+        statement: str,
+        rung: int = 1,
+        risk_ceiling: str = "low",
+        origin_statement: str = "",
+    ) -> dict[str, Any]:
         try:
-            mission = await store.set(statement, rung=rung, risk_ceiling=risk_ceiling)
+            mission = await store.set(
+                statement, rung=rung, risk_ceiling=risk_ceiling,
+                origin_statement=origin_statement,
+            )
         except ValueError as e:
             return {"error": str(e)}
         # 0.9.2: bind the mission's own wiki BEFORE seeding, so the stubs land
@@ -436,7 +571,8 @@ def register_tools(ctx: PluginContext, store: MissionStore) -> None:
             "identity_sync": await _write_through_identity(ctx, mission["statement"]),
             "wiki_stubs": await _seed_wiki_stubs(ctx, mission["statement"], wk),
             "schedules": await _sync_schedules(ctx),
-            # fire-and-forget: the kickoff moment posts right after this turn.
+            # fire-and-forget: the instant-brief moment posts right after this
+            # turn (11.001: the deep pass waits for mission_confirm / 12 h).
             # Read the succinct-persona signal HERE (turn session is live) so
             # the background task carries a flag, not a second DB read.
             "kickoff": research.spawn_kickoff(
@@ -445,7 +581,10 @@ def register_tools(ctx: PluginContext, store: MissionStore) -> None:
             ),
             "reminder": (
                 "set your one-line status now with current_state_set — the "
-                "owner's pane shows it under the mission statement"
+                "owner's pane shows it under the mission statement. A quick "
+                "first-look brief posts in a moment; the deep setup pass "
+                "waits for the owner's yes — when they confirm (any 'go'/"
+                "'yes'/'sounds right'), call mission_confirm."
             ),
         }
 
@@ -479,8 +618,54 @@ def register_tools(ctx: PluginContext, store: MissionStore) -> None:
     async def _get() -> dict[str, Any]:
         mission = await store.get()
         if mission is None:
+            draft = await store.draft_get()
+            if draft is not None:
+                return {
+                    "mission": None,
+                    "draft": draft,
+                    "note": (
+                        "no active mission, but an intake draft holds the "
+                        "owner's words — save it with mission_set (sharpened "
+                        "statement, origin_statement=the draft verbatim) on "
+                        "their next reply, or immediately if they seem done "
+                        "answering"
+                    ),
+                }
             return {"mission": None, "note": "no active mission — ask the owner for one"}
         return {"mission": mission}
+
+    async def _draft(verbatim: str) -> dict[str, Any]:
+        try:
+            draft = await store.draft(verbatim)
+        except ValueError as e:
+            return {"error": str(e)}
+        return {
+            "draft": draft,
+            "next": (
+                "their words are safe — now, if mission_set is not among your "
+                "tools yet, call load_tools(group='curiosity') in this SAME "
+                "reply (its tools go live next turn, never this one), then "
+                "ask your ONE round of discovery questions (max 2-3, only "
+                "ones whose answers change your plan) in this same reply. On "
+                "the owner's NEXT message you MUST call mission_set "
+                "(sharpened statement, origin_statement=this verbatim) no "
+                "matter how much they answered — never a second question "
+                "round. If they show ANY impatience, skip the questions and "
+                "save with mission_set at the first turn it is available."
+            ),
+        }
+
+    async def _confirm() -> dict[str, Any]:
+        try:
+            mission = await store.confirm()
+        except LookupError as e:
+            return {"error": str(e)}
+        await telemetry.emit_ui_event(ctx, "changed", {"what": "mission"})
+        out: dict[str, Any] = {"mission": mission}
+        # routed through the janitor: it holds the once-per-mission claim AND
+        # the grandfather guard (a pre-split mission past S0 never re-fires)
+        out["deep_kickoff"] = await research.maybe_start_deep_kickoff(ctx, store)
+        return out
 
     # 0.9.3: self-heal for wiped/broken schedules. Before this, sync only ran
     # inside mission_set/mission_refine — an agent that found its triggers gone
@@ -496,16 +681,47 @@ def register_tools(ctx: PluginContext, store: MissionStore) -> None:
     defs: list[tuple[ToolDef, Any]] = [
         (
             ToolDef(
+                name="mission_draft",
+                description=(
+                    "Capture the owner's mission words VERBATIM the instant "
+                    "they first state work they want you to own — before any "
+                    "reply text, before any question. This protects their "
+                    "words while you ask your single round of discovery "
+                    "questions (max 2-3, same reply, only questions whose "
+                    "answers would change your plan). On the owner's NEXT "
+                    "message you save with mission_set — never a second "
+                    "question round; if the owner seems impatient, skip the "
+                    "questions and call mission_set immediately."
+                ),
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "verbatim": {
+                            "type": "string",
+                            "description": "The owner's mission words exactly as they wrote them.",
+                        },
+                    },
+                    "required": ["verbatim"],
+                },
+                policy="auto_approve",
+                risk_level="low",
+            ),
+            _draft,
+        ),
+        (
+            ToolDef(
                 name="mission_set",
                 description=(
-                    "Adopt a new mission (replaces any active one). Call it the "
-                    "MOMENT the owner states work they want you to own — in "
-                    "that same turn, before writing your reply, with their "
-                    "mission as stated. Writes the "
+                    "Adopt a new mission (replaces any active one). Call it "
+                    "when the intake round is done — the owner's next message "
+                    "after your questions, or immediately on any sign of "
+                    "impatience — with the sharpened statement and their "
+                    "verbatim words as origin_statement (auto-filled from "
+                    "your mission_draft if omitted). Writes the "
                     "mission into your identity (system prompt), seeds starter "
                     "wiki pages, registers your recurring research/dream "
-                    "schedules, and starts the kickoff research pass (a Mission "
-                    "Kickoff moment follows in this conversation). autonomy_rung "
+                    "schedules, and posts a quick first-look brief (the deep "
+                    "setup pass waits for mission_confirm). autonomy_rung "
                     "1-4: how proactively you may act (4 = execute-with-approval; "
                     "unattended execution is a later owner decision, not a rung)."
                 ),
@@ -513,6 +729,10 @@ def register_tools(ctx: PluginContext, store: MissionStore) -> None:
                     "type": "object",
                     "properties": {
                         "statement": {"type": "string", "description": "The mission, one clear sentence or short paragraph."},
+                        "origin_statement": {
+                            "type": "string",
+                            "description": "The owner's own words for the mission, verbatim (kept forever alongside the sharpened statement).",
+                        },
                         "rung": {"type": "integer", "minimum": 1, "maximum": 4, "default": 1},
                         "risk_ceiling": {"type": "string", "enum": list(RISK_CEILINGS), "default": "low"},
                     },
@@ -523,6 +743,25 @@ def register_tools(ctx: PluginContext, store: MissionStore) -> None:
                 timeout_seconds=120,
             ),
             _set,
+        ),
+        (
+            ToolDef(
+                name="mission_confirm",
+                description=(
+                    "The owner approved the mission direction — any clear yes "
+                    "to your brief ('go', 'yes', 'sounds right', 'proceed'). "
+                    "Stamps the mission confirmed and starts the DEEP setup "
+                    "pass (research, job description, ladder, milestones). "
+                    "Call it the moment the yes lands, in that same turn. If "
+                    "the owner never answers, the deep pass starts by itself "
+                    "after ~12 hours with a note."
+                ),
+                parameters={"type": "object", "properties": {}},
+                policy="auto_approve",
+                risk_level="low",
+                timeout_seconds=120,
+            ),
+            _confirm,
         ),
         (
             ToolDef(
@@ -704,32 +943,61 @@ How this stage works:
 
   2. MISSION DETECTION: if the owner's message describes work they want
      owned — even one sentence — that IS the mission, and that turn has
-     a FIXED shape. Asking ANY question before the two calls below is
-     the failure (the name question comes AFTER them, in the same
-     reply). In order:
-        a. call `mission_set(statement=...)`  — FIRST action, before
-           any reply text, with the mission AS THE OWNER STATED IT.
-           There is NO confirmation round: restating the mission back
-           and asking "did I get that right?" instead of saving is the
-           failure — save first; the mission can always be refined
-           later.
-        b. call `update_self(field='mission', value=...)`
-        c. only now write your reply: react in your own voice, then ask
-           ONE question and one only — what NAME the owner wants to
-           give you. The name always comes from the owner, never from you.
-     HARD RULES for this turn: replying without BOTH calls is
-     acting-vs-claiming — "I'll build myself around this" with no calls
-     means nothing was saved, and until `mission_set` runs your whole
-     curiosity loop (wiki, research, dreams) stays dark. Do NOT ask for
-     links, repos, docs, metrics, pronouns, or any other detail before
-     both calls have run — gathering context is later work, not a
-     precondition for saving. The two calls plus the single name
-     question are the WHOLE turn: `complete_setup` is not available at
-     this stage, and there are no other setup fields yet — the rest of
-     the checklist appears only after the mission is saved. No plugin
-     installs, no persona writing, no mission work yet.
+     a FIXED shape. In order:
+        a. call `mission_draft(verbatim=...)` — FIRST action, before
+           any reply text, with the owner's words EXACTLY as they wrote
+           them. Their words are now safe; nothing can lose them.
+        b. if `mission_set` is not among your tools yet, call
+           `load_tools(group="curiosity")` in this SAME turn — the
+           group's tools only become available on the NEXT turn, so
+           loading now is what makes the save possible when the owner
+           replies. NEVER call `mission_set` in the same turn you
+           loaded the group; it is not live until the next turn.
+        c. only now write your reply: reflect the work back in one warm
+           line (so they hear you got it), then ask your ONE round of
+           discovery questions — AT MOST 2-3, all in THIS single reply.
+           A question earns its place only if you could not infer the
+           answer AND the answer would change your plan (who it's for,
+           what good looks like, where the work lives). Fold one tiny
+           before/after example of what you could own into the round so
+           the owner keeps learning what's possible. If you have no
+           question that clears that bar, skip straight to step 3's
+           shape in THIS turn.
+     This is the ONLY question round there will ever be. Do NOT ask for
+     links, repos, docs, metrics, pronouns, or anything that doesn't
+     change the plan.
 
-  3. If the owner detours, briefly oblige, then renew the mission ask
+  3. The owner's NEXT message ALWAYS ends intake — no matter how many
+     questions they answered, even none. That turn has a FIXED shape:
+        a. call `mission_set(statement=..., origin_statement=...)` —
+           FIRST action, before any reply text. statement = the mission
+           sharpened by what you learned; origin_statement = their
+           verbatim words from the draft. NEVER ask a second round of
+           questions instead of saving. If `mission_set` is not among
+           your tools, call `load_tools(group="curiosity")` and save
+           on the automatic next turn — the save still happens before
+           anything else.
+        b. call `update_self(field='mission', value=...)`
+        c. only now write your reply: reflect back in one line what you
+           understood the mission to be (in your words — they can
+           correct you anytime), then ask ONE question and one only —
+           what NAME the owner wants to give you. The name always comes
+           from the owner, never from you.
+     HARD RULES: replying without BOTH calls is acting-vs-claiming —
+     nothing was saved, and until `mission_set` runs your whole
+     curiosity loop (wiki, research, dreams) stays dark. The two calls
+     plus the single name question are the WHOLE turn: `complete_setup`
+     is not available at this stage, and there are no other setup
+     fields yet — the rest of the checklist appears only after the
+     mission is saved. No plugin installs, no persona writing, no
+     mission work yet.
+
+  4. IMPATIENCE OVERRIDES EVERYTHING: at ANY point — "just go", terse
+     answers, any hint of annoyance — drop the remaining questions and
+     save NOW (step 3's shape, in that same turn). A saved mission can
+     always be refined; a tired owner cannot be un-tired.
+
+  5. If the owner detours, briefly oblige, then renew the mission ask
      with fresh framing in the same message — it is the one gate
      between them and a working agent."""
 
@@ -749,15 +1017,20 @@ def _mission_gate_state_block(state_block: str) -> str:
     out += [
         "Missing — required:",
         "  ☐ mission — the owner's next message may contain it; when it",
-        "    does, save it AS STATED (both calls below) BEFORE writing",
-        "    your reply — no confirmation round, no follow-up questions",
-        "    first.",
+        "    does, capture it VERBATIM with `mission_draft` BEFORE",
+        "    writing your reply, ask at most 2-3 plan-changing questions",
+        "    in that single reply, and on their NEXT message ALWAYS save",
+        "    with `mission_set` (+ `update_self`) — impatience means",
+        "    save immediately, questions dropped.",
         "",
         "The rest of the setup checklist is locked until the mission is",
         "saved; it appears here the moment it is.",
         "",
-        "Tools: `mission_set(statement=...)`, then "
-        "`update_self(field='mission', value=...)`.",
+        "Tools: `mission_draft(verbatim=...)` on first contact (plus "
+        "`load_tools(group=\"curiosity\")` in that same turn if "
+        "`mission_set` is not yet available); then "
+        "`mission_set(statement=..., origin_statement=...)` and "
+        "`update_self(field='mission', value=...)` to save.",
     ]
     return "\n".join(out)
 
@@ -842,14 +1115,20 @@ def prompt_fragment(
             "research it, build a knowledge wiki, watch over it while they "
             "sleep. The "
             "moment they state a mission (or you agree on one together), call "
-            "mission_set IN THAT SAME TURN, before asking anything else — never "
-            "defer it behind name, emoji, or other setup questions; adopting it "
-            "seeds your wiki, starts your recurring research/dream schedules, "
-            "and kicks off a same-day quick win, and every exchange it waits is "
-            "a quick win delayed. If first-run setup is in progress, the "
-            "adopted mission doubles as your identity: also save it with "
-            "update_self(field='mission', ...) right away, then continue the "
-            "rest of setup. " + rails
+            "mission_draft IN THAT SAME TURN with their words verbatim, before "
+            "asking anything else — never defer it behind name, emoji, or "
+            "other setup questions (and if mission_set is not among your "
+            "tools, call load_tools(group='curiosity') in that same turn so "
+            "it is ready when they reply). Then ask at most 2-3 questions (one round, "
+            "one reply — only questions whose answers change your plan), and "
+            "on their NEXT message ALWAYS save with mission_set (sharpened "
+            "statement, origin_statement=their verbatim words) — impatience "
+            "means save immediately. Adopting it seeds your wiki, starts your "
+            "recurring research/dream schedules, and posts a first-look "
+            "brief, and every exchange it waits is a quick win delayed. If "
+            "first-run setup is in progress, the adopted mission doubles as "
+            "your identity: also save it with update_self(field='mission', "
+            "...) right away, then continue the rest of setup. " + rails
         )
     # 0.9.2: a bound mission wiki is stated concretely — the generic rule
     # (prompts.WIKI_BINDING) rides in surfaces that can't know the slug.
@@ -861,10 +1140,30 @@ def prompt_fragment(
             "patch, ask, toc, search); pages written elsewhere are invisible "
             "to your mission surfaces. "
         )
+    # 11.001: the confirmation gate, agent-side — the owner's yes is what
+    # releases the deep pass, and the agent is the one who hears it. Same S0
+    # condition as the janitor: a mission past S0 (or in work phase) already
+    # ran its pass — never tell that agent it's "waiting for a yes".
+    confirm_line = ""
+    at_gate = (
+        mission.get("setup_stage") in (None, "S0")
+        and mission.get("agent_phase") != "work"
+        and phase != "work"
+    )
+    if at_gate and not mission.get("confirmed_at"):
+        confirm_line = (
+            "Your mission is saved but NOT yet confirmed — you are waiting "
+            "for the owner's yes on the direction. The moment any clear yes "
+            "lands ('go', 'yes', 'sounds right', 'proceed'), call "
+            "mission_confirm in that same turn — it starts your deep setup "
+            "pass. Until then keep work light and redirectable; if they stay "
+            "silent the deep pass proceeds on its own after ~12 hours. "
+        )
     base = (
         f"Curiosity: your mission — {mission['statement']} (autonomy rung "
         f"{mission['autonomy_rung']}/4, risk ceiling {mission['risk_ceiling']}). "
         + wiki_line
+        + confirm_line
         + prompts.OWNER_WORDS + " "
         "You OWN this mission and you are relentless about it: you keep a goal "
         "ledger ([[mission-goals]] — goal_set / goal_update / goal_list), you "

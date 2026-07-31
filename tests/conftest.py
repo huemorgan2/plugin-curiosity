@@ -226,10 +226,13 @@ def _reset_kickoff_claim():
     """The install-kickoff claim is module state (dedupes the double on-load
     run inside one process) — reset it so tests stay independent."""
     import plugin_curiosity as pc
+    from plugin_curiosity import research
 
     pc._kickoff_claimed = False
+    research._deep_claims.clear()
     yield
     pc._kickoff_claimed = False
+    research._deep_claims.clear()
 
 
 @pytest.fixture

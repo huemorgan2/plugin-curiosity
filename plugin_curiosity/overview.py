@@ -701,11 +701,40 @@ async def build_overview(
 
     setup = _setup_checklist(setup_stage) if agent_phase == "setup" and setup_stage else None
 
+    # 11.001: the confirm gate, owner-side — the pane says plainly whether
+    # the deep pass is waiting on their yes.
+    confirmation = None
+    if active is not None:
+        confirmed = bool(active.get("confirmed_at"))
+        # same S0 condition as the janitor's grandfather guard: a mission past
+        # S0 (or in work phase) already ran its deep pass — no gate to show
+        at_gate = (
+            active.get("setup_stage") in (None, "S0")
+            and active.get("agent_phase") != "work"
+        )
+        if confirmed or at_gate:
+            confirmation = {
+                "confirmed": confirmed,
+                "confirmed_at": active.get("confirmed_at"),
+                "label": "confirmed" if confirmed else "waiting for your yes",
+            }
+    needs = _needs_from_you(loops_open, setup_stage, agent_phase, recent_pivots)
+    if confirmation is not None and not confirmation["confirmed"]:
+        needs.insert(0, {
+            "kind": "confirm",
+            "text": (
+                'Waiting for your yes — reply "go" in chat (or push back) '
+                "and the deep setup pass starts; otherwise it proceeds on "
+                "its own after about half a day."
+            ),
+        })
+
     return {
         "generated_at": now.isoformat(),
         "plugin_version": CuriosityPlugin.manifest.version,
         "blocked": blocked,
         "mission": active,
+        "confirmation": confirmation,
         "missions": all_missions,
         "state": state,
         "setup": setup,
@@ -726,9 +755,7 @@ async def build_overview(
         "heartbeats": {"latest": latest_hb, "recent": heartbeats[:10]},
         "pace": pace,
         "sentiment": sentiment,
-        "needs_from_you": _needs_from_you(
-            loops_open, setup_stage, agent_phase, recent_pivots
-        ),
+        "needs_from_you": needs,
         "next_up": _what_next(agent_phase, setup_stage, triggers),
         "wiki_shelf": shelf,
         "noc": noc,

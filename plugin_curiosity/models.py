@@ -32,6 +32,13 @@ class Mission(Base):
 
     id: Mapped[_uuid.UUID] = mapped_column(UUID(), primary_key=True, default=_uuid.uuid4)
     statement: Mapped[str] = mapped_column(Text, nullable=False)
+    # 11.001/M1: the owner's mission words VERBATIM — the statement above may
+    # be the sharpened version; the origin is never lost. confirmed_at gates
+    # the deep kickoff pass (mission_confirm / "go" / 12 h timeout-proceed).
+    origin_statement: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    confirmed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     autonomy_rung: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     risk_ceiling: Mapped[str] = mapped_column(String(16), default="low", nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
@@ -66,6 +73,22 @@ class Mission(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+
+class MissionDraft(Base):
+    """11.001/M1: the owner's words the instant they state a mission — stored
+    VERBATIM before the (single) discovery round, so a dead conversation can
+    never lose the mission. The 24 h reaper promotes a stale draft to the
+    mission as stated; mission_set consumes all drafts. Convergent under
+    concurrent turns: the oldest row wins everywhere."""
+
+    __tablename__ = "curiosity_mission_drafts"
+
+    id: Mapped[_uuid.UUID] = mapped_column(UUID(), primary_key=True, default=_uuid.uuid4)
+    verbatim: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
     )
 
 
@@ -368,6 +391,7 @@ class Flag(Base):
 
 ALL_TABLES = (
     Mission.__table__,
+    MissionDraft.__table__,
     Reflection.__table__,
     Goal.__table__,
     Scope.__table__,
@@ -400,6 +424,9 @@ _ADDITIVE_COLUMNS: dict[str, tuple[tuple[str, str], ...]] = {
         # 0.9.10
         ("current_state", "TEXT NOT NULL DEFAULT ''"),
         ("current_state_at", "TIMESTAMP WITH TIME ZONE"),
+        # 0.13.0 (11.001/M1): intake & confirm
+        ("origin_statement", "TEXT NOT NULL DEFAULT ''"),
+        ("confirmed_at", "TIMESTAMP WITH TIME ZONE"),
     ),
     "curiosity_goals": (
         ("expected_result", "TEXT NOT NULL DEFAULT ''"),

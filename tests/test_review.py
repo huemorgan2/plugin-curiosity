@@ -67,7 +67,7 @@ async def test_agent_facing_kinds_are_guarded(ctx, monkeypatch):
 def test_mission_kickoff_commits_goals_and_scans_reach():
     t = _KICKOFF_CONTENT
     assert "goal_set" in t and "COMMIT" in t
-    assert "My goals" in t and "Next move" in t
+    assert "My milestones" in t and "Next move" in t
     assert "marketplace_search" in t
     assert "wa_status" in t and "connector_list_connected" in t
     # ends on Luna's action, never on homework for the owner
