@@ -682,6 +682,13 @@ async def build_overview(
     pace = None
     sentiment = None
     if state is not None:
+        # 0.15.0 honest horizons: open goals blocked on someone else's move
+        # feed pace as named unlocks (never as lateness)
+        blocked_goals = [
+            g for g in goals_list
+            if g.get("status") in ("active", "stalled")
+            and g.get("horizon_kind") in goals.BLOCKED_HORIZON_KINDS
+        ]
         pace = telemetry.compute_pace(
             agent_phase=agent_phase,
             setup_stage=setup_stage,
@@ -689,6 +696,7 @@ async def build_overview(
             overdue_loops=len(overdue),
             now=now,
             last_report_at=_parse_dt(latest_hb["created_at"]) if latest_hb else None,
+            blocked_horizons=blocked_goals,
         )
         sentiment = telemetry.compute_sentiment(
             latest_hb, prev_hb, blocked_on_owner=blocked_on_owner

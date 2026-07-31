@@ -121,6 +121,14 @@ class Goal(Base):
     weekly review scores them. `status`: "active" | "done" | "stalled" |
     "dropped". `target_date` is free-form text ("2026-07-20", "end of July") —
     the agent reasons about it; nothing fires on it.
+
+    0.15.0 (11.003/M3) honest horizons: `horizon_kind` types WHEN in units
+    that are true — agent_minutes (the agent's own working time once
+    unblocked), awaiting_approval (blocked on the owner's yes), on_unlock
+    (blocked until a named unlock), date (a real calendar date carried by a
+    real-world event — the ONLY kind that can be overdue), rhythm (recurring
+    cadence). `horizon_ref` carries the unit's value. `target_date` stays as
+    the legacy mirror for kind 'date' (the pane timeline reads it).
     """
 
     __tablename__ = "curiosity_goals"
@@ -137,6 +145,9 @@ class Goal(Base):
     expected_result: Mapped[str] = mapped_column(Text, default="", nullable=False)
     readiness: Mapped[str] = mapped_column(String(8), default="", nullable=False)
     readiness_note: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    # 0.15.0 honest horizons (see class docstring)
+    horizon_kind: Mapped[str] = mapped_column(String(24), default="", nullable=False)
+    horizon_ref: Mapped[str] = mapped_column(Text, default="", nullable=False)
     # 0.10.0 (goal-engine handover): when plugin-goalseek is the engine, this
     # row becomes a POINTER — goalseek_id names the live goal in goal-seek's
     # tables; the local columns freeze as the open-time snapshot. migrated_at
@@ -480,6 +491,9 @@ _ADDITIVE_COLUMNS: dict[str, tuple[tuple[str, str], ...]] = {
         # 0.10.0 goal-engine handover
         ("goalseek_id", "VARCHAR(36) NOT NULL DEFAULT ''"),
         ("migrated_at", "TIMESTAMP WITH TIME ZONE"),
+        # 0.15.0 (11.003/M3) honest horizons
+        ("horizon_kind", "VARCHAR(24) NOT NULL DEFAULT ''"),
+        ("horizon_ref", "TEXT NOT NULL DEFAULT ''"),
     ),
     "curiosity_scopes": (
         # {UUID} resolves per dialect at apply time — Postgres UUID,
@@ -512,4 +526,13 @@ def apply_additive_migrations(conn) -> list[str]:
                 ddl = ddl.replace("{UUID}", uuid_ddl)
                 conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
                 added.append(f"{table}.{name}")
+    # 0.15.0 backfill: a pre-horizon row with a target_date WAS a dated goal —
+    # map it once so old rows read as horizon_kind 'date'. Idempotent (a row
+    # touched once has horizon_kind set and never matches again).
+    if insp.has_table("curiosity_goals"):
+        conn.execute(text(
+            "UPDATE curiosity_goals SET horizon_kind = 'date', "
+            "horizon_ref = target_date "
+            "WHERE target_date != '' AND horizon_kind = ''"
+        ))
     return added

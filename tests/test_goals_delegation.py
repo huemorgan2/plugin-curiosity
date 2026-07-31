@@ -148,6 +148,53 @@ class TestGoalSetDelegates:
         assert "[[goal-gs-0001" in body  # phase 06 page link on the mirror
 
 
+class TestHorizonDelegation:
+    """0.15.0: goal-seek knows exactly one time unit — a real date deadline.
+    Kind 'date' maps to it; every other kind rides the provenance note and
+    the pointer snapshot; a wait never masquerades as a deadline."""
+
+    async def test_date_kind_maps_to_deadline(self, env):
+        _, handler, _ = env.ctx.tool_registry.registered["goal_set"]
+        await handler(statement="Launch post", horizon_kind="date",
+                      horizon_ref="2026-08-15")
+        assert env.gs.opens[0]["deadline"] == "2026-08-15"
+        pointers = await env.store.pointer_map()
+        assert pointers["gs-0001"]["horizon_kind"] == "date"
+
+    async def test_rhythm_kind_rides_note_not_deadline(self, env):
+        _, handler, _ = env.ctx.tool_registry.registered["goal_set"]
+        await handler(statement="Weekly digest", horizon_kind="rhythm",
+                      horizon_ref="weekly")
+        assert env.gs.opens[0]["deadline"] is None
+        assert any("Rhythm: weekly." in (n.get("note") or "")
+                   for n in env.gs.notes)
+        assert (await env.store.pointer_map())["gs-0001"]["horizon_kind"] == "rhythm"
+
+    async def test_on_unlock_kind_never_becomes_deadline(self, env):
+        _, handler, _ = env.ctx.tool_registry.registered["goal_set"]
+        await handler(statement="Email customers", horizon_kind="on_unlock",
+                      horizon_ref="mailbox access")
+        assert env.gs.opens[0]["deadline"] is None
+        assert any("Starts when this unlocks: mailbox access" in (n.get("note") or "")
+                   for n in env.gs.notes)
+
+    async def test_bad_date_kind_is_steering_error_no_open(self, env):
+        _, handler, _ = env.ctx.tool_registry.registered["goal_set"]
+        out = await handler(statement="g", horizon_kind="date",
+                            horizon_ref="in a few days")
+        assert "real calendar date" in out["error"]
+        assert env.gs.opens == []
+
+    async def test_pointer_horizon_overlays_engine_read(self, env):
+        _, handler, _ = env.ctx.tool_registry.registered["goal_set"]
+        await handler(statement="Email customers", horizon_kind="on_unlock",
+                      horizon_ref="mailbox access")
+        listed = await goals_mod.list_mission_goals(env.ctx, env.store)
+        g = next(x for x in listed if x["statement"] == "Email customers")
+        assert g["horizon_kind"] == "on_unlock"
+        assert g["horizon_ref"] == "mailbox access"
+
+
 class TestDeferentialRegistration:
     async def test_update_and_list_yield_to_goalseek(self, env):
         # the fake new-core registry skipped both yielding registrations

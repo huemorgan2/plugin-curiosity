@@ -49,6 +49,65 @@ GOAL_STATUSES = ("active", "done", "stalled", "dropped")
 # have/missing terms the owner can act on.
 GOAL_READINESS = ("green", "amber", "red")
 
+# 0.15.0 (11.003/M3) honest horizons — WHEN, in units that are true:
+#   agent_minutes     — the agent's own working time once unblocked (ref:
+#                       minutes, e.g. "90")
+#   awaiting_approval — blocked on the owner's yes (ref: what needs approving)
+#   on_unlock         — blocked until a named unlock (ref: the loop / access /
+#                       event it waits on); NEVER overdue — it's blocked
+#   date              — a real calendar date carried by a real-world event
+#                       (ref: ISO date) — the only kind that can be overdue
+#   rhythm            — recurring cadence (ref: e.g. "weekly", "each Monday")
+HORIZON_KINDS = ("agent_minutes", "awaiting_approval", "on_unlock", "date", "rhythm")
+
+# kinds that mean "someone else's move" — surfaces render these blocked-on,
+# never late; pace names the unlock instead of counting days
+BLOCKED_HORIZON_KINDS = ("awaiting_approval", "on_unlock")
+
+
+def _iso_date(text: str) -> str | None:
+    """ISO date/datetime or None — kind 'date' requires a real-date source."""
+    from datetime import datetime
+
+    t = (text or "").strip()
+    if not t:
+        return None
+    try:
+        datetime.fromisoformat(t)
+    except ValueError:
+        return None
+    return t
+
+
+def _norm_horizon(kind: str, ref: str, target_date: str) -> tuple[str, str, str]:
+    """Validate + normalize the horizon triple → (kind, ref, target_date).
+
+    Rules: an explicit kind must be one of HORIZON_KINDS; kind 'date' needs a
+    real ISO date in ref (guessed durations are exactly what this kills) and
+    mirrors it into target_date (the pane timeline reads it). Legacy callers
+    passing only target_date: an ISO value derives kind 'date'; free-form text
+    ("end of July") stays an untyped note exactly as before."""
+    kind = (kind or "").strip()
+    ref = (ref or "").strip()
+    target_date = (target_date or "").strip()
+    if kind and kind not in HORIZON_KINDS:
+        raise ValueError(f"horizon_kind must be one of {HORIZON_KINDS}")
+    if not kind and target_date and _iso_date(target_date):
+        kind, ref = "date", target_date
+    if kind == "date":
+        if not ref and target_date:
+            ref = target_date
+        if _iso_date(ref) is None:
+            raise ValueError(
+                "horizon_kind 'date' needs a real calendar date (ISO, e.g. "
+                "'2026-08-15') carried by a real-world event. For your own "
+                "work time use agent_minutes; for a wait use "
+                "awaiting_approval or on_unlock; for a cadence use rhythm — "
+                "never guess a date"
+            )
+        target_date = ref
+    return kind, ref, target_date
+
 
 def _goal_dict(g: Goal) -> dict[str, Any]:
     out = {
@@ -61,6 +120,8 @@ def _goal_dict(g: Goal) -> dict[str, Any]:
         "expected_result": g.expected_result,
         "readiness": g.readiness or None,
         "readiness_note": g.readiness_note,
+        "horizon_kind": getattr(g, "horizon_kind", "") or "",
+        "horizon_ref": getattr(g, "horizon_ref", "") or "",
         "created_at": g.created_at.isoformat() if g.created_at else None,
         "updated_at": g.updated_at.isoformat() if g.updated_at else None,
     }
@@ -82,20 +143,27 @@ class GoalStore:
         expected_result: str = "",
         readiness: str = "",
         readiness_note: str = "",
+        horizon_kind: str = "",
+        horizon_ref: str = "",
     ) -> dict[str, Any]:
         statement = (statement or "").strip()
         if not statement:
             raise ValueError("goal statement must be non-empty")
         if readiness and readiness not in GOAL_READINESS:
             raise ValueError(f"readiness must be one of {GOAL_READINESS}")
+        horizon_kind, horizon_ref, target_date = _norm_horizon(
+            horizon_kind, horizon_ref, target_date
+        )
         async with self._sf() as s:
             g = Goal(
                 statement=statement,
                 why=why.strip(),
-                target_date=target_date.strip(),
+                target_date=target_date,
                 expected_result=expected_result.strip(),
                 readiness=readiness,
                 readiness_note=readiness_note.strip(),
+                horizon_kind=horizon_kind,
+                horizon_ref=horizon_ref,
             )
             s.add(g)
             await s.commit()
@@ -111,6 +179,8 @@ class GoalStore:
         expected_result: str | None = None,
         readiness: str | None = None,
         readiness_note: str | None = None,
+        horizon_kind: str | None = None,
+        horizon_ref: str | None = None,
     ) -> dict[str, Any]:
         try:
             key = uuid.UUID(str(goal_id))
@@ -126,8 +196,22 @@ class GoalStore:
                 g.status = status
             if progress_note is not None:
                 g.progress_note = progress_note.strip()
+            if horizon_kind is not None or horizon_ref is not None:
+                hk = horizon_kind if horizon_kind is not None else g.horizon_kind
+                hr = horizon_ref if horizon_ref is not None else g.horizon_ref
+                td = target_date if target_date is not None else g.target_date
+                hk, hr, td = _norm_horizon(hk, hr, td)
+                g.horizon_kind, g.horizon_ref = hk, hr
+                if hk == "date":
+                    g.target_date = td
+                    target_date = None  # already applied — skip the legacy branch
             if target_date is not None:
-                g.target_date = target_date.strip()
+                hk, hr, td = _norm_horizon(g.horizon_kind, g.horizon_ref
+                                           if g.horizon_kind != "date" else "",
+                                           target_date)
+                g.target_date = td
+                if hk == "date":  # an ISO shift re-types / re-refs the horizon
+                    g.horizon_kind, g.horizon_ref = hk, hr
             if expected_result is not None:
                 g.expected_result = expected_result.strip()
             if readiness is not None:
@@ -158,16 +242,21 @@ class GoalStore:
         why: str = "",
         target_date: str = "",
         expected_result: str = "",
+        horizon_kind: str = "",
+        horizon_ref: str = "",
     ) -> dict[str, Any]:
         """A pointer row for a goal that LIVES in goal-seek: goalseek_id names
         the live goal, the local columns freeze the open-time snapshot. The
-        pointer set is what scopes curiosity's reads to mission goals."""
+        pointer set is what scopes curiosity's reads to mission goals.
+        Horizon fields ride the pointer raw (goal-seek doesn't keep them)."""
         async with self._sf() as s:
             g = Goal(
                 statement=(statement or "").strip(),
                 why=(why or "").strip(),
                 target_date=(target_date or "").strip(),
                 expected_result=(expected_result or "").strip(),
+                horizon_kind=(horizon_kind or "").strip(),
+                horizon_ref=(horizon_ref or "").strip(),
                 goalseek_id=str(goalseek_id),
             )
             s.add(g)
@@ -294,8 +383,33 @@ async def list_mission_goals(ctx: PluginContext, store: GoalStore) -> list[dict[
         mapped["readiness_note"] = p.get("readiness_note", "")
         if not mapped["target_date"]:
             mapped["target_date"] = p.get("target_date", "")
+        # horizons are curiosity-only too — goal-seek knows one unit (a date
+        # deadline); every other kind rides the pointer snapshot
+        if not mapped.get("horizon_kind"):
+            mapped["horizon_kind"] = p.get("horizon_kind", "")
+            mapped["horizon_ref"] = p.get("horizon_ref", "")
         out.append(mapped)
     return out + history
+
+
+def _horizon_phrase(g: dict[str, Any]) -> str:
+    """The owner-readable WHEN suffix, per kind. A blocked kind (on_unlock /
+    awaiting_approval) reads as waiting on its unlock — never late, never
+    overdue; only kind 'date' carries a calendar date."""
+    hk = g.get("horizon_kind") or ""
+    hr = (g.get("horizon_ref") or "").strip()
+    if hk == "agent_minutes":
+        return f" — about {hr} minutes of my work once I start" if hr else ""
+    if hk == "awaiting_approval":
+        tail = f": {hr}" if hr else ""
+        return f" — waiting on your approval{tail} (~5 min of your time)"
+    if hk == "on_unlock":
+        return f" — starts when this unlocks: {hr}" if hr else " — waiting on an unlock"
+    if hk == "date":
+        return f" — target: {hr or g.get('target_date', '')}"
+    if hk == "rhythm":
+        return f" — rhythm: {hr}" if hr else ""
+    return f" — target: {g['target_date']}" if g.get("target_date") else ""
 
 
 def render_goals_page(goals: list[dict[str, Any]]) -> str:
@@ -309,8 +423,7 @@ def render_goals_page(goals: list[dict[str, Any]]) -> str:
     for g in goals:
         mark = _STATUS_MARK.get(g["status"], "•")
         head = f"- {mark} **{g['statement']}**"
-        if g["target_date"]:
-            head += f" — target: {g['target_date']}"
+        head += _horizon_phrase(g)
         lines.append(head)
         if g["why"]:
             lines.append(f"  - why: {g['why']}")
@@ -395,12 +508,15 @@ def register_tools(ctx: PluginContext, store: GoalStore,
         expected_result: str = "",
         readiness: str = "",
         readiness_note: str = "",
+        horizon_kind: str = "",
+        horizon_ref: str = "",
     ) -> dict[str, Any]:
         if engine.resolve_goal_engine(ctx) == engine.GOAL_ENGINE_GOALSEEK:
             return await _set_via_goalseek(
                 ctx, store,
                 statement=statement, why=why, target_date=target_date,
                 expected_result=expected_result,
+                horizon_kind=horizon_kind, horizon_ref=horizon_ref,
                 mission_id=await _mission_id(),
             )
         try:
@@ -411,6 +527,8 @@ def register_tools(ctx: PluginContext, store: GoalStore,
                 expected_result=expected_result,
                 readiness=readiness,
                 readiness_note=readiness_note,
+                horizon_kind=horizon_kind,
+                horizon_ref=horizon_ref,
             )
         except ValueError as e:
             return {"error": str(e)}
@@ -425,6 +543,8 @@ def register_tools(ctx: PluginContext, store: GoalStore,
         expected_result: str | None = None,
         readiness: str | None = None,
         readiness_note: str | None = None,
+        horizon_kind: str | None = None,
+        horizon_ref: str | None = None,
     ) -> dict[str, Any]:
         try:
             goal = await store.update(
@@ -435,6 +555,8 @@ def register_tools(ctx: PluginContext, store: GoalStore,
                 expected_result=expected_result,
                 readiness=readiness,
                 readiness_note=readiness_note,
+                horizon_kind=horizon_kind,
+                horizon_ref=horizon_ref,
             )
         except (ValueError, LookupError) as e:
             return {"error": str(e)}
@@ -453,13 +575,37 @@ def register_tools(ctx: PluginContext, store: GoalStore,
             }
         return {"goals": goals}
 
+    horizon_params = {
+        "horizon_kind": {
+            "type": "string",
+            "enum": list(HORIZON_KINDS),
+            "description": (
+                "WHEN, in honest units: agent_minutes = your own working time "
+                "once unblocked; awaiting_approval = blocked on the owner's "
+                "yes; on_unlock = blocked until a named unlock (never "
+                "overdue); date = ONLY when a real-world event carries a real "
+                "calendar date; rhythm = recurring cadence. Never guess a "
+                "date for your own work."
+            ),
+        },
+        "horizon_ref": {
+            "type": "string",
+            "description": (
+                "The unit's value: minutes ('90'), what needs approving, the "
+                "unlock it waits on, an ISO date ('2026-08-15'), or the "
+                "cadence ('weekly')."
+            ),
+        },
+    }
     set_def = (
         (
             ToolDef(
                 name="goal_set",
                 description=(
                     "Commit to a concrete goal in pursuit of your mission — a "
-                    "specific outcome YOU will drive, with a target date. Set "
+                    "specific outcome YOU will drive, with an honest horizon "
+                    "(horizon_kind + horizon_ref: your work in agent-minutes, "
+                    "waits by their unlock, real dates only when real). Set "
                     "them at mission kickoff; add more as the picture sharpens. "
                     "For your NEXT 2-3 goals also state expected_result (what "
                     "done looks like) and readiness (green = I have everything "
@@ -479,9 +625,14 @@ def register_tools(ctx: PluginContext, store: GoalStore,
                             "type": "string",
                             "description": "How achieving it serves the mission.",
                         },
+                        **horizon_params,
                         "target_date": {
                             "type": "string",
-                            "description": "When you aim to get there (e.g. '2026-07-20', 'end of July').",
+                            "description": (
+                                "Legacy — prefer horizon_kind='date' + "
+                                "horizon_ref. A real ISO date only when a "
+                                "real-world event carries it."
+                            ),
                         },
                         "expected_result": {
                             "type": "string",
@@ -507,12 +658,14 @@ def register_tools(ctx: PluginContext, store: GoalStore,
                 name="goal_update",
                 description=(
                     "Record movement on a goal: progress notes, status changes "
-                    "(active/done/stalled/dropped), target-date shifts, and "
-                    "readiness re-scores (green/amber/red + what you have / "
-                    "what's missing). Update after every research pass that "
-                    "advanced a goal and re-score readiness when your ladder "
-                    "changes; confront stalls honestly — change approach or "
-                    "drop with a reason, never let a goal rot."
+                    "(active/done/stalled/dropped), horizon shifts (an unlock "
+                    "landed, a wait became your own work — re-type it with "
+                    "horizon_kind/horizon_ref), and readiness re-scores "
+                    "(green/amber/red + what you have / what's missing). "
+                    "Update after every research pass that advanced a goal "
+                    "and re-score readiness when your ladder changes; "
+                    "confront stalls honestly — change approach or drop with "
+                    "a reason, never let a goal rot."
                 ),
                 parameters={
                     "type": "object",
@@ -523,6 +676,7 @@ def register_tools(ctx: PluginContext, store: GoalStore,
                             "type": "string",
                             "description": "What moved (or why it stalled) — one or two lines.",
                         },
+                        **horizon_params,
                         "target_date": {"type": "string"},
                         "expected_result": {
                             "type": "string",
@@ -546,7 +700,8 @@ def register_tools(ctx: PluginContext, store: GoalStore,
                 name="goal_list",
                 description=(
                     "Your goal ledger — every goal with status, progress, and "
-                    "target date. Read it at the start of each research pass "
+                    "its honest horizon (work time, unlock, date, or rhythm). "
+                    "Read it at the start of each research pass "
                     "and pick the goal you can advance TODAY."
                 ),
                 parameters={"type": "object", "properties": {}},
@@ -574,6 +729,8 @@ async def _set_via_goalseek(
     why: str = "",
     target_date: str = "",
     expected_result: str = "",
+    horizon_kind: str = "",
+    horizon_ref: str = "",
     mission_id: str | None = None,
 ) -> dict[str, Any]:
     """goal_set, goal-seek engine: delegate the open (goal-seek's own
@@ -581,20 +738,44 @@ async def _set_via_goalseek(
     row for mission membership, refresh the mirror. Honest passthrough: a
     rejected open is reported exactly as goal-seek said it, and a 'proposed'
     return is a NORMAL outcome (the owner has a card; the goal activates by
-    itself on approve) — the pointer is kept either way."""
+    itself on approve) — the pointer is kept either way.
+
+    Horizon mapping (0.15.0): goal-seek knows exactly one time unit — a real
+    date deadline — so only kind 'date' maps to it. Every other kind rides
+    the provenance note (and the pointer snapshot, which curiosity's reads
+    prefer): a wait or a rhythm must never masquerade as a deadline."""
     from . import telemetry
 
     statement = (statement or "").strip()
     if not statement:
         return {"error": "goal statement must be non-empty"}
+    try:
+        horizon_kind, horizon_ref, target_date = _norm_horizon(
+            horizon_kind, horizon_ref, target_date
+        )
+    except ValueError as e:
+        return {"error": str(e), "engine": "goalseek"}
     dod = (expected_result or "").strip() or f"Owner agrees done: {statement}"
     note_bits = [b for b in ((why or "").strip(),) if b]
+    deadline: str | None = None
+    if horizon_kind == "date":
+        deadline = horizon_ref
+    elif horizon_kind == "rhythm":
+        note_bits.append(f"Rhythm: {horizon_ref}.")
+    elif horizon_kind == "agent_minutes":
+        note_bits.append(f"About {horizon_ref} minutes of agent work once started.")
+    elif horizon_kind == "awaiting_approval":
+        note_bits.append(f"Waiting on owner approval: {horizon_ref}.")
+    elif horizon_kind == "on_unlock":
+        note_bits.append(f"Starts when this unlocks: {horizon_ref}.")
+    else:
+        deadline = (target_date or "").strip() or None
     try:
         opened = await engine.engine_open(
             ctx,
             statement=statement,
             definition_of_done=dod,
-            deadline=(target_date or "").strip() or None,
+            deadline=deadline,
             opened_by="agent",
             note=("Mission goal (curiosity). " + " ".join(note_bits)).strip(),
             mission_id=mission_id,
@@ -611,6 +792,8 @@ async def _set_via_goalseek(
             why=why,
             target_date=target_date,
             expected_result=expected_result,
+            horizon_kind=horizon_kind,
+            horizon_ref=horizon_ref,
         )
     await telemetry.emit_ui_event(ctx, "changed", {"what": "goal"})
     if opened.get("stage") == "proposed":

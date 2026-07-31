@@ -19,6 +19,7 @@ from __future__ import annotations
 from .prompts import (
     ASK_SHAPE,
     HEARTBEAT_NAME,
+    HONEST_HORIZONS,
     OWNER_WORDS,
     PHASE_CHECK,
     PHASE_ONE_DOCTRINE,
@@ -34,7 +35,7 @@ WEEKLY_REVIEW_TARGET = (
     "[curiosity] Weekly review — your scoreboard turn; the owner should feel "
     "a driven operator reporting, not a librarian summarizing. One focused "
     "pass (~10 tool calls). " + PHASE_CHECK + " " + WIKI_BINDING + " "
-    + OWNER_WORDS + "\n"
+    + OWNER_WORDS + " " + HONEST_HORIZONS + "\n"
     "Common prep (both branches): CARD FIRST — this fire is self-directed "
     "spend: next_step_post(what='weekly review + scoring', produces='the "
     "weekly scoreboard post', cost_text='~10 tool calls', scheduled=true) "
@@ -86,7 +87,9 @@ WEEKLY_REVIEW_TARGET = (
     "what moved and what regressed.\n"
     "   - **Scope scoreboard** — every scope with status and evidence; call "
     "out what regressed and why.\n"
-    "   - **Timeline** — the goal schedule: on time / late, per goal.\n"
+    "   - **Timeline** — each goal by its honest horizon: dated goals on "
+    "time / late; blocked goals by their unlock and whose move it is "
+    "(never 'late'); your own work in agent-minutes.\n"
     "   - **Loops** — chased, closed, and still open ([[open-loops]]); act "
     "NOW on anything past its nudge date.\n"
     "   - **Value vs asks** — what you delivered ([[value-log]]) against "

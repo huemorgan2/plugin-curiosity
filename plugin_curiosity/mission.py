@@ -1189,6 +1189,8 @@ def prompt_fragment(
         + prompts.PROACTIVE_RULE + " "
         # 11.002/M2: both phases — self-directed spend opens with a card
         + prompts.NEXT_STEP_CARD_RULE + " "
+        # 11.003/M3: both phases — time in honest units, horizons typed
+        + prompts.HONEST_HORIZONS + " "
     )
     if phase == "work":
         posture = (

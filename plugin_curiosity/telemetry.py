@@ -135,6 +135,7 @@ def compute_pace(
     overdue_loops: int,
     now: datetime | None = None,
     last_report_at: datetime | None = None,
+    blocked_horizons: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """The honest half of the contentment gauge — pure clock math, no vibes.
 
@@ -143,6 +144,12 @@ def compute_pace(
     S2 at the 3-day ratification-forcing threshold, or 4+ days on any stage.
     `ahead` — advanced a stage within ~1 day with nothing overdue. Else
     `on-track`. Work phase paces only on loop debt (stages are done).
+
+    0.15.0 honest horizons: `blocked_horizons` are open goals whose horizon
+    is someone else's move (on_unlock / awaiting_approval dicts with
+    statement + horizon_ref). They NEVER worsen the band — a blocked goal is
+    not a late goal — but the reason names the unlock and its ~5-minute
+    human cost, so the pane blames the wait honestly.
     """
     now = now or _utcnow()
     # reasons travel into owner-facing surfaces (heartbeat notes, pace nudges)
@@ -174,6 +181,16 @@ def compute_pace(
     elif stage_age_days <= 1 and setup_stage not in ("S0",):
         band = "ahead"
         reasons.append(f"reached '{stage_word}' within the last day")
+    # blocked horizons: band untouched, unlock named + the human cost
+    for g in (blocked_horizons or [])[:2]:
+        ref = (g.get("horizon_ref") or "").strip() or (
+            "your approval" if g.get("horizon_kind") == "awaiting_approval"
+            else "an unlock"
+        )
+        stmt = (g.get("statement") or "").strip()[:60]
+        reasons.append(
+            f"'{stmt}' waits on {ref} — about 5 minutes of your time unlocks it"
+        )
     if band == "on-track" and not reasons:
         reasons.append("no overdue loops, stage moving at pace")
     last_report_age_hours = None

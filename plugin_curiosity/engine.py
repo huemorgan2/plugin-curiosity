@@ -193,6 +193,10 @@ def to_curiosity_dict(g: dict[str, Any]) -> dict[str, Any]:
         "statement": g.get("statement") or "",
         "why": "",
         "target_date": str(deadline)[:10] if deadline else "",
+        # goal-seek's one time unit is a real date deadline; other horizon
+        # kinds ride the curiosity pointer (list_mission_goals overlays them)
+        "horizon_kind": "date" if deadline else "",
+        "horizon_ref": str(deadline)[:10] if deadline else "",
         "status": status,
         "progress_note": _progress_note(g),
         "expected_result": g.get("definition_of_done") or "",

@@ -34,6 +34,7 @@ from .prompts import (
     FDE_DOCTRINE,
     HEARTBEAT_CONTRACT,
     HEARTBEAT_NAME,
+    HONEST_HORIZONS,
     JOB_DESCRIPTION_SHAPE,
     LOOP_DISCIPLINE,
     MATERIALITY_RULE,
@@ -176,6 +177,8 @@ is a LIVING DRAFT — say so, and improve it as you learn.
 {wiki_note}"""
     + OWNER_WORDS
     + "\n"
+    + HONEST_HORIZONS
+    + "\n"
     + PHASE_ONE_DOCTRINE
     + "\n"
     + FDE_DOCTRINE
@@ -234,8 +237,12 @@ S2 — milestones, your own drive, and the post:
    the mission visibly delivering, each one owner-readable ("first draft
    replies flowing", not "research phase 2"). Together they must cover your
    abilities, and each must trace to a criterion on [[success-criteria]] (a
-   milestone that serves no criterion is scope creep — cut it). No dates
-   required — order and readiness beat guessed deadlines. For the NEXT 1-2
+   milestone that serves no criterion is scope creep — cut it). Give each
+   an honest horizon (horizon_kind + horizon_ref): agent_minutes for your
+   own work, awaiting_approval / on_unlock for waits, date ONLY when a
+   real-world event carries a real date, rhythm for recurring — NEVER a
+   guessed calendar date; order and readiness beat guessed deadlines. For
+   the NEXT 1-2
    milestones set expected_result (what done looks like) and readiness
    (green/amber/red) with a one-line readiness_note: what you have / what's
    missing.
@@ -306,15 +313,18 @@ DAILY_RESEARCH_TARGET = (
     "credential form, connector setup) with NO loop tracking it gets "
     "loop_open(kind='ask', unlock=..., value_ref=...) RIGHT NOW. "
     + LOOP_DISCIPLINE + "\n"
-    + WIKI_BINDING + " " + OWNER_WORDS + "\n"
+    + WIKI_BINDING + " " + OWNER_WORDS + " " + HONEST_HORIZONS + "\n"
     "SETUP BRANCH (agent_phase='setup'): you are QUALIFYING yourself for "
     "this job — every action today closes a named gap on your ladder: which "
     "tools, access, people, or knowledge am I missing? do I know what "
     "success looks like ([[success-criteria]])?\n"
     "1. mission_get, then goal_list and ability_list. CONFRONT overdue "
-    "goals first: anything past its target date gets replanned, escalated, "
-    "or dropped TODAY (goal_update with the reason) — never carried "
-    "silently. " + RATIFICATION_FORCING + " Also trigger_list: if your own "
+    "goals first: a goal with a real date (horizon_kind 'date') past it "
+    "gets replanned, escalated, or dropped TODAY (goal_update with the "
+    "reason) — never carried silently. A goal on_unlock or "
+    "awaiting_approval is NEVER overdue — it is blocked: confront the "
+    "BLOCKER (nudge its loop, re-raise the approval with its ~5-minute "
+    "cost), not the goal. " + RATIFICATION_FORCING + " Also trigger_list: if your own "
     "'" + HEARTBEAT_NAME + "' trigger is missing, recreate it per your "
     "heartbeat contract BEFORE anything else.\n"
     "2. Pick the ONE goal you can advance TODAY and advance it with a small "
