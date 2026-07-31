@@ -69,30 +69,45 @@ def test_missions_pane_has_zero_stage_jargon():
 
 
 def test_tooltips_only_behind_help_affordances():
-    """data-tip may exist only on (i) .help elements, on both panes."""
+    """data-tip may exist only on (i) .help elements. 0.16.0: the Missions
+    journey page has no tooltip layer at all — plain sentences carry the
+    explanations; only the ops pane keeps (i) affordances."""
     for rel in ("index.html", "noc/index.html"):
         html = (UI / rel).read_text()
         for m in re.finditer(r"<[^>]*data-tip=", html):
             assert 'class="help"' in m.group(0) or "help" in m.group(0), (
                 f"{rel}: data-tip outside a .help affordance: {m.group(0)[:80]}"
             )
-    for rel in ("app.js", "noc/app.js"):
-        js = (UI / rel).read_text()
-        # the hover handler must anchor exclusively to .help elements
-        assert ".help[data-tip]" in js, f"{rel}: tooltip layer not scoped to .help"
+    assert "data-tip" not in (UI / "index.html").read_text()
+    assert "data-tip" not in (UI / "app.js").read_text()
+    # the ops pane's hover handler must anchor exclusively to .help elements
+    assert ".help[data-tip]" in (UI / "noc" / "app.js").read_text()
 
 
 def test_missions_pane_sections_in_order():
+    # 0.16.0 (11.004/M4): the journey grammar — 8 sections in mock order,
+    # sections 4–8 hidden until their data exists (progressive disclosure)
     html = (UI / "index.html").read_text()
     order = [
-        html.index("Active mission"),
-        html.index("Job description"),
-        html.index('id="setup-panel"'),
-        html.index('id="goals-panel"'),
+        html.index("Your mission — in my words"),
+        html.index('id="journey-panel"'),
+        html.index('id="nownext-panel"'),
+        html.index('id="waiting-panel"'),
+        html.index('id="services-panel"'),
+        html.index('id="when-panel"'),
+        html.index('id="wins-panel"'),
+        html.index('id="rules-panel"'),
     ]
-    assert order == sorted(order), "the four sections must render in plan order"
-    # removed panels stay removed (all live on the NOC now)
-    for gone in ("noc-tiles", "hb-history", "activity", "wiki-panel", "history-panel", "gaps-panel"):
+    assert order == sorted(order), "the eight sections must render in mock order"
+    for late in ("waiting-panel", "services-panel", "when-panel", "wins-panel", "rules-panel"):
+        i = html.index(f'id="{late}"')
+        assert "hidden" in html[html.rindex("<section", 0, i):i + 60], (
+            f"{late} must start hidden — day one shows exactly three sections"
+        )
+    # machinery stays off this pane (all of it lives on the NOC now)
+    for gone in ('id="noc-tiles"', 'id="hb-history"', 'id="activity"',
+                 'id="wiki-panel"', 'id="history-panel"', 'id="gaps-panel"',
+                 'id="jd-blocks"', 'id="abilities"'):
         assert gone not in html, f"{gone} belongs to the NOC pane, not Missions"
 
 
@@ -113,12 +128,19 @@ def test_noc_pane_carries_the_moved_panels():
         assert panel in html, f"NOC pane missing {panel}"
 
 
-def test_jd_stamp_and_pivot_card_wired():
+def test_jd_and_setup_ladder_moved_to_noc():
+    # 0.16.0: the living-draft JD and the ability ladder render on the ops
+    # pane; the Missions tab renders the journey payload and its buttons
+    noc_js = (UI / "noc" / "app.js").read_text()
+    assert "Living draft" in noc_js and "role_version" in noc_js
+    assert "renderSetup" in noc_js and "subtask" in noc_js
     js = (UI / "app.js").read_text()
-    assert "Living draft" in js and "role_version" in js
-    assert "pivot-card" in js and "Big change" in js
-    # goals: timeline + readiness two-liners
-    assert "goal-timeline" in js and "readiness_note" in js
+    assert "Living draft" not in js and "goal-timeline" not in js
+    # the M0a buttons post muted moment messages into the newest conversation
+    assert "kind: 'muted'" in js and "channel: 'moment'" in js
+    assert "/api/conversations" in js
+    for say in ("Go ahead", "Change it", "Confirm", "Approve"):
+        assert say in js, f"button {say!r} missing from the journey pane"
 
 
 # ---- serving: /ui/noc/ stamped like /ui/ ------------------------------------
@@ -147,7 +169,7 @@ def test_ui_root_serves_stamped_missions_pane(client: TestClient):
     r = client.get("/api/p/plugin-curiosity/ui/")
     assert r.status_code == 200
     assert f"app.js?v={v}" in r.text and f"style.css?v={v}" in r.text
-    assert "Active mission" in r.text
+    assert "Your mission — in my words" in r.text
 
 
 def test_ui_noc_serves_stamped_noc_pane(client: TestClient):

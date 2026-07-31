@@ -7,8 +7,9 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <!-- 0.9.5: one pane, two tabs. Tab 2 embeds ui/noc/ (the operations wall)
-       so both views share one sidebar entry. -->
+  <!-- 0.9.5: one pane, two tabs. Tab 2 embeds ui/noc/ (the operations wall).
+       0.16.0 (11.004/M4): tab 1 is the journey, not a dashboard — the
+       machinery (abilities, gap board, heartbeats, JD) lives on tab 2. -->
   <nav class="tabs" role="tablist">
     <button id="tab-missions" class="tab active" role="tab" aria-selected="true">Missions</button>
     <button id="tab-ops" class="tab" role="tab" aria-selected="false">Operational dashboard</button>
@@ -39,67 +40,79 @@
       <div class="blocked-icon">◎</div>
       <div class="eyebrow">Missions</div>
       <h1>No mission yet</h1>
-      <p class="blocked-lead">Give Luna a job in chat — "your mission is…" — and this page becomes her job description, her setup progress, and her goals.</p>
+      <p class="blocked-lead">Give Luna a job in chat — "your mission is…" — and this page becomes the story of how she earns it.</p>
     </div>
   </div>
 
   <div id="app" class="app hidden">
 
-    <!-- 1 · ACTIVE MISSION — the one gradient on this page -->
+    <!-- 1 · YOUR MISSION, IN MY WORDS — the one gradient on this page -->
     <section class="hero">
-      <div class="hero-label">Active mission</div>
-      <div id="mission-statement" class="hero-statement"></div>
-      <div id="mission-phase" class="hero-support"></div>
-      <div id="mission-meta" class="hero-meta"></div>
-    </section>
-
-    <!-- Needs from you: slim strip, only when something actually waits -->
-    <section id="needs" class="strip hidden">
-      <div class="strip-label">Waiting on you</div>
-      <div id="needs-list"></div>
-    </section>
-
-    <!-- Role pivot: its own card when a big change is on the table -->
-    <section id="pivot-card" class="panel pivot hidden">
-      <div class="eyebrow">Big change proposed</div>
-      <h2 id="pivot-headline"></h2>
-      <p id="pivot-why" class="support"></p>
-      <p class="support dim">Weigh in from chat — Luna won't switch the job without you.</p>
-    </section>
-
-    <!-- 2 · JOB DESCRIPTION -->
-    <section class="panel" id="jd-panel">
-      <div class="eyebrow">Job description
-        <span class="help" data-tip="Luna writes and maintains her own job description as a living draft. Every revision is stamped; big discoveries become pivot proposals you decide on.">i</span>
+      <div class="eyebrow">Your mission — in my words</div>
+      <h1 id="hero-statement"></h1>
+      <span id="hero-confirmed" class="confirmed hidden"></span>
+      <div id="hero-actions" class="actions hidden">
+        <button id="btn-confirm" class="btn primary">Confirm</button>
+        <button id="btn-change-mission" class="btn">Change it</button>
       </div>
-      <h2 id="jd-headline">I haven't written my job description yet</h2>
-      <p id="jd-stamp" class="support"></p>
-      <div id="jd-blocks"></div>
+      <div id="hero-said" class="said hidden"></div>
+      <details id="howwegothere" class="howwegothere hidden">
+        <summary id="howwegothere-label"></summary>
+        <div id="convo" class="convo"></div>
+      </details>
     </section>
 
-    <!-- 3 · SETUP -->
-    <section class="panel" id="setup-panel">
-      <div class="eyebrow">Setup
-        <span class="help" data-tip="Each ability is something Luna must be able to do before she's qualified for this job. The numbers are computed on the server from her subtask checklist — never guessed.">i</span>
-      </div>
-      <div class="setup-head">
-        <div id="setup-ring" class="ring"><span id="setup-pct"></span></div>
-        <div>
-          <h2 id="setup-headline"></h2>
-          <p id="setup-support" class="support"></p>
-        </div>
-      </div>
-      <div id="abilities"></div>
+    <!-- 2 · WHERE WE ARE — the adoption journey -->
+    <section class="panel" id="journey-panel">
+      <div class="eyebrow">Where we are</div>
+      <h2 id="journey-headline"></h2>
+      <p id="journey-support" class="support"></p>
+      <div id="journey-rail" class="journey"></div>
+      <div class="now-question"><b>This step answers:</b> <span id="journey-answers"></span></div>
+      <div id="dial" class="dial"></div>
     </section>
 
-    <!-- 4 · GOALS -->
-    <section class="panel" id="goals-panel">
-      <div class="eyebrow">Goals
-        <span class="help" data-tip="Dated commitments Luna scores in her weekly review. Readiness says whether she already has what each goal needs — green yes, amber partly, red something's missing.">i</span>
-      </div>
-      <h2 id="goals-headline"></h2>
-      <div id="goal-timeline" class="timeline"></div>
-      <ol id="goal-next" class="goal-next"></ol>
+    <!-- 3 · NOW & NEXT — never run unannounced -->
+    <section class="panel" id="nownext-panel">
+      <div class="eyebrow">Now &amp; next</div>
+      <h2>You always know what I'm doing — and what it buys you</h2>
+      <div id="now-grid" class="now-grid"></div>
+      <p id="nownext-empty" class="support hidden"></p>
+    </section>
+
+    <!-- 4 · WAITING ON YOU — blockers named by their unlock -->
+    <section class="panel hidden" id="waiting-panel">
+      <div class="eyebrow">Waiting on you</div>
+      <h2 id="waiting-headline"></h2>
+      <div id="waits" class="waits"></div>
+      <p id="waiting-keeps" class="keeps"></p>
+    </section>
+
+    <!-- 5 · WHAT I RUN FOR YOU — appears with the first automation (phase07) -->
+    <section class="panel hidden" id="services-panel">
+      <div class="eyebrow">What I run for you</div>
+      <h2 id="services-headline"></h2>
+      <div id="sys" class="sys"></div>
+    </section>
+
+    <!-- 6 · WHAT HAPPENS WHEN — expectations in honest units -->
+    <section class="panel hidden" id="when-panel">
+      <div class="eyebrow">What happens when</div>
+      <h2 id="when-headline"></h2>
+      <div id="tl" class="tl"></div>
+    </section>
+
+    <!-- 7 · WHAT YOU GOT SO FAR -->
+    <section class="panel hidden" id="wins-panel">
+      <div class="eyebrow">What you got so far</div>
+      <h2 id="wins-headline"></h2>
+      <div id="wins" class="wins"></div>
+    </section>
+
+    <!-- 8 · MY RULES — slim strip, appears once boundaries exist (phase08) -->
+    <section class="panel rules hidden" id="rules-panel">
+      <span class="rlist"><span class="eyebrow rules-eyebrow">My rules</span><span id="rules-list"></span></span>
+      <span id="rules-count" class="rcount"></span>
     </section>
 
     <footer class="foot">
@@ -113,7 +126,7 @@
     <iframe id="ops-frame" title="Operational dashboard"></iframe>
   </div>
 
-  <div id="tip" class="tip hidden"></div>
+  <div id="toast" class="toast hidden"></div>
   <script src="app.js"></script>
 </body>
 </html>

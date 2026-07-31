@@ -240,3 +240,48 @@ body {
 .loading-text { color: var(--faint); font-size: 13px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+
+/* ---- job description + setup ladder (moved from the Missions tab, 0.16.0) */
+.jd-block { margin-top: 16px; }
+.jd-block h3 {
+  font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--dim); font-weight: 600; margin-bottom: 6px;
+}
+.jd-block ul, .jd-block ol { list-style: none; margin: 0; padding: 0; }
+.jd-block li {
+  display: flex; gap: 9px; align-items: baseline; padding: 4px 0;
+  font-size: 13.5px; line-height: 1.5;
+}
+.jd-block li .n { flex: none; color: var(--faint); font-size: 12px; width: 18px; }
+.jd-block li .dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--violet-soft); position: relative; top: -2px; }
+.jd-block li .adot { flex: none; font-size: 13px; width: 18px; }
+.jd-block li .adot.checking { color: var(--amber); }
+.jd-block li .adot.verified { color: var(--ok); }
+.jd-block li .adot.broken { color: var(--red); }
+.jd-intro { font-size: 13px; color: var(--dim); margin-bottom: 4px; }
+.jd-raw {
+  white-space: pre-wrap; font-size: 13px; color: var(--dim);
+  border: 1px dashed var(--line); border-radius: 8px; padding: 12px 14px; margin-top: 10px;
+  max-height: 340px; overflow: auto;
+}
+.ability { border-top: 1px solid var(--line); }
+.ability:first-of-type { border-top: 0; }
+.ability summary {
+  list-style: none; cursor: pointer; display: flex; align-items: center;
+  gap: 12px; padding: 11px 0;
+}
+.ability summary::-webkit-details-marker { display: none; }
+.ability .a-title { font-weight: 600; font-size: 13.5px; flex: 1; min-width: 0; }
+.ability .a-bar { flex: none; width: 140px; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.ability .a-bar i { display: block; height: 100%; background: var(--violet); border-radius: 2px; }
+.ability .a-pct { flex: none; width: 40px; text-align: right; font-size: 12.5px; color: var(--dim); font-variant-numeric: tabular-nums; }
+.ability .a-tw { flex: none; color: var(--faint); font-size: 11px; transition: transform 0.15s; }
+.ability[open] .a-tw { transform: rotate(90deg); }
+.subtasks { padding: 0 0 12px 2px; }
+.subtask { display: flex; gap: 9px; align-items: baseline; padding: 3px 0; font-size: 13px; color: var(--dim); }
+.subtask .dot { flex: none; width: 8px; height: 8px; border-radius: 50%; position: relative; top: -1px; }
+.subtask.done .dot { background: var(--ok); }
+.subtask.in_progress .dot { background: var(--amber); }
+.subtask.missing .dot { background: transparent; border: 1.5px solid var(--faint); }
+.subtask.blocked .dot { background: var(--red); }
+.subtask .note { color: var(--faint); font-size: 12px; }

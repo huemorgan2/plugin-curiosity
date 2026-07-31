@@ -31,7 +31,7 @@ from sqlalchemy import select
 
 from luna_sdk import PluginContext
 
-from . import goals, telemetry, wikibind
+from . import goals, journey, telemetry, wikibind
 from .abilities import AbilityStore
 from .goals import GoalStore
 from .loops import LoopStore, _loop_dict, _value_dict
@@ -43,6 +43,7 @@ from .models import (
     Loop,
     Mission,
     NextStep,
+    OwnerDecision,
     PlanChange,
     Scope,
     ValueEntry,
@@ -773,10 +774,48 @@ async def build_overview(
             ),
         })
 
+    # 11.004: the setup answers that shaped the mission — the hero's "how we
+    # got here" fold. Best-effort like every other read on this endpoint.
+    intake: list[dict[str, Any]] = []
+    if active is not None:
+        try:
+            async with missions._sf() as s:  # noqa: SLF001
+                rows = (
+                    (
+                        await s.execute(
+                            select(OwnerDecision)
+                            .where(OwnerDecision.source == "setup")
+                            .order_by(OwnerDecision.created_at)
+                            .limit(5)
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+            intake = [
+                {"you": d.asked, "because": d.why}
+                for d in rows
+                if d.mission_id is None or str(d.mission_id) == active["id"]
+            ]
+        except Exception:  # noqa: BLE001
+            log.debug("intake decisions read failed", exc_info=True)
+
     return {
         "generated_at": now.isoformat(),
         "plugin_version": CuriosityPlugin.manifest.version,
         "blocked": blocked,
+        # 11.004/M4: the owner-facing Missions tab reads THIS block; the rest
+        # of the payload feeds the Operational tab (the machinery view).
+        "journey": journey.build_journey(
+            mission=active,
+            goals_list=goals_list,
+            loops_open=loops_open,
+            loops_all=loops_all,
+            value_log=value_log,
+            next_steps=next_steps_recent,
+            intake=intake,
+            now=now,
+        ),
         "mission": active,
         "confirmation": confirmation,
         "next_step": next_step,

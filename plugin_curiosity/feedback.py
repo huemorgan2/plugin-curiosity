@@ -174,6 +174,39 @@ class FeedbackStore:
     async def unactioned_count(self) -> int:
         return len(await self.feedback_list(unactioned_only=True))
 
+    # -- 11.005: the dial drops on a visible error, out loud -----------------
+    async def drop_rung(self) -> dict[str, Any] | None:
+        """One notch down on the active mission's autonomy dial (floor:
+        asking-first), returning what the agent must SAY about it — the drop
+        is announced in owner words, never silently applied, never a number.
+        None when there is no active mission to drop."""
+        from .journey import dial_words, rung_drop_sentence
+
+        async with self._sf() as s:
+            m = (
+                (
+                    await s.execute(
+                        select(Mission)
+                        .where(Mission.active.is_(True))
+                        .order_by(Mission.created_at.desc())
+                    )
+                )
+                .scalars()
+                .first()
+            )
+            if m is None:
+                return None
+            dropped = m.autonomy_rung > 1
+            if dropped:
+                m.autonomy_rung -= 1
+                await s.commit()
+                await s.refresh(m)
+            return {
+                "dropped": dropped,
+                "dial": dial_words(m.autonomy_rung),
+                "say_aloud": rung_drop_sentence(m.autonomy_rung, dropped),
+            }
+
 
 # -- wiki mirror -------------------------------------------------------------
 
@@ -365,7 +398,11 @@ def register_tools(ctx: PluginContext, store: FeedbackStore) -> None:
         return {"decisions": await store.decision_list()}
 
     async def _feedback_note(
-        quote: str, diagnosis: str = "", changed_refs: str = "", reconciled: str = ""
+        quote: str,
+        diagnosis: str = "",
+        changed_refs: str = "",
+        reconciled: str = "",
+        visible_error: bool = False,
     ) -> dict[str, Any]:
         if time.monotonic() - audit_state["at"] > _AUDIT_WINDOW_S:
             return {
@@ -393,6 +430,12 @@ def register_tools(ctx: PluginContext, store: FeedbackStore) -> None:
             "feedback": f,
             "wiki_mirror": await _mirror_to_wiki(ctx, store),
         }
+        # 11.005: a visible error costs a notch of autonomy, said out loud —
+        # the say_aloud sentence goes in your reply to the owner verbatim.
+        if visible_error:
+            drop = await store.drop_rung()
+            if drop is not None:
+                out["autonomy"] = drop
         if not f["acted"]:
             out["warning"] = (
                 "recorded but NOT ACTED ON — this stays a red item on every "
@@ -537,6 +580,17 @@ def register_tools(ctx: PluginContext, store: FeedbackStore) -> None:
                         "reconciled": {
                             "type": "string",
                             "description": "If this contradicted an earlier owner ask: how you reconciled (keep/demote/replace + where).",
+                        },
+                        "visible_error": {
+                            "type": "boolean",
+                            "description": (
+                                "true when the feedback reports an error the "
+                                "owner could SEE — wrong output delivered, a "
+                                "bad send, broken data. Drops your autonomy "
+                                "dial one notch; the result's `say_aloud` "
+                                "sentence must appear in your reply verbatim "
+                                "— the drop is never silent."
+                            ),
                         },
                     },
                     "required": ["quote"],

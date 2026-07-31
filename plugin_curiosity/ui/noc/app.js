@@ -116,6 +116,8 @@ function render() {
   renderNoc(o);
   renderHeartbeat(o);
   renderGaps(o);
+  renderJd(o);
+  renderSetup(o);
   renderNext(o);
   renderActivity(o);
   renderShelf(o);
@@ -151,11 +153,92 @@ function renderStatus(o, phase, hb) {
   else if (overdue > 0) line = `${overdue} loop${overdue === 1 ? '' : 's'} overdue — otherwise steady`;
   else if (hb) line = `All quiet — heartbeat alive${gaps != null ? `, ${gaps} gap${gaps === 1 ? '' : 's'} still open` : ''}`;
   else line = 'No heartbeat report yet — the first fire lands one';
-  $('status-line').textContent = line;
+  // 0.16.0: the agent-authored current_state line (she writes it via
+  // current_state_set) leads; the computed bottom line is the fallback —
+  // this hero never invents her words.
+  const said = ((o.state && o.state.current_state) || '').trim();
+  $('status-line').textContent = said || line;
   const bits = [`mission since ${dateOf(o.mission.created_at)}`];
   if (o.setup_percent != null) bits.push(`setup ${o.setup_percent}%`);
   if (hb) bits.push(`streak ${hb.streak}`);
+  if (said) bits.push(line); // the computed bottom line still shows, just smaller
   $('status-meta').textContent = bits.join(' · ');
+}
+
+// Job description — living draft, four blocks, assumption check-dots
+// (moved off the Missions tab in 0.16.0; the payload is unchanged).
+const JD_BLOCKS = [
+  ['method', 'How I will do the job', 'numbered'],
+  ['after_onboarding', 'After onboarding', 'bullet'],
+  ['in_30_days', 'In 30 days', 'bullet'],
+  ['working_assumptions', 'Working assumptions', 'assumption'],
+];
+
+function renderJd(o) {
+  const jd = o.job_description;
+  const stamp = $('jd-stamp');
+  const blocks = $('jd-blocks');
+  if (!jd || !jd.exists) {
+    stamp.textContent = 'Not written yet — it lands with kickoff, the first thing after adopting a mission.';
+    blocks.innerHTML = '';
+    return;
+  }
+  if (jd.revisions && jd.revisions.count) {
+    const when = String(jd.revisions.latest || '').slice(0, 10);
+    stamp.innerHTML = `Living draft <b>v${esc(jd.role_version)}</b> · ` +
+      `${esc(jd.revisions.count)} revision${jd.revisions.count === 1 ? '' : 's'}` +
+      (when ? `, last ${esc(when)}` : '');
+  } else {
+    stamp.innerHTML = `Living draft <b>v${esc(jd.role_version)}</b>` +
+      (jd.latest_pivot ? ` · revised ${esc(jd.latest_pivot.date)} — the job changed` : '');
+  }
+  if (!jd.shape_ok) {
+    blocks.innerHTML =
+      '<div class="muted">This draft doesn’t follow the four-block shape yet — verbatim:</div>' +
+      `<div class="jd-raw">${esc(jd.raw || '')}</div>`;
+    return;
+  }
+  blocks.innerHTML = JD_BLOCKS.map(([key, label, kind]) => {
+    const sec = jd.sections[key];
+    if (!sec) return '';
+    const intro = sec.intro ? `<p class="jd-intro">${esc(sec.intro)}</p>` : '';
+    const items = sec.items.map((it, i) => {
+      const text = esc(it).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+      if (kind === 'numbered') return `<li><span class="n">${i + 1}.</span><span>${text}</span></li>`;
+      if (kind === 'assumption') {
+        // check-dots: ◐ checking by default; ● verified; ✕ broken/revised
+        let cls = 'checking', glyph = '◐';
+        if (/^\s*(✓|\[?verified\]?)/i.test(it)) { cls = 'verified'; glyph = '●'; }
+        if (/^\s*(✕|\[?(broken|revised|wrong)\]?)/i.test(it)) { cls = 'broken'; glyph = '✕'; }
+        return `<li><span class="adot ${cls}">${glyph}</span><span>${text}</span></li>`;
+      }
+      return `<li><span class="dot"></span><span>${text}</span></li>`;
+    }).join('');
+    const tag = kind === 'numbered' ? 'ol' : 'ul';
+    return `<div class="jd-block"><h3>${esc(label)}</h3>${intro}<${tag}>${items}</${tag}></div>`;
+  }).join('');
+}
+
+// Setup ladder — ability rows with bars (expand → subtasks); moved off the
+// Missions tab in 0.16.0.
+function renderSetup(o) {
+  const pct = o.setup_percent;
+  const abilities = o.abilities || [];
+  $('setup-line').textContent = pct == null
+    ? 'The qualification ladder lands with kickoff.'
+    : `${pct}% complete`;
+  $('abilities').innerHTML = abilities.map((a) => {
+    const subtasks = (a.tasks || []).map((t) =>
+      `<div class="subtask ${esc(t.status)}"><span class="dot"></span><span>${esc(t.title)}` +
+      (t.note ? ` <span class="note">— ${esc(t.note)}</span>` : '') + `</span></div>`
+    ).join('');
+    return `<details class="ability">` +
+      `<summary><span class="a-tw">▸</span><span class="a-title">${esc(a.title)}</span>` +
+      `<span class="a-bar"><i style="width:${a.percent}%"></i></span>` +
+      `<span class="a-pct">${a.percent}%</span></summary>` +
+      `<div class="subtasks">${subtasks || '<div class="muted">no checklist yet</div>'}</div>` +
+      `</details>`;
+  }).join('');
 }
 
 function renderNoc(o) {

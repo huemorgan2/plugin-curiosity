@@ -105,8 +105,11 @@ def test_migration_covers_upgrading_databases():
 
 
 def test_hero_renders_agent_words_not_hardcoded_sentence():
-    js = (UI / "app.js").read_text()
-    assert "current_state" in js, "hero must read the agent-authored line"
-    # the old hardcoded first-person sentence must be gone from the UI
-    assert "making myself good enough" not in js
-    assert "setting myself up" not in js
+    # 0.16.0: the agent-authored line moved to the ops pane's status hero —
+    # the Missions tab carries owner-facing journey copy only
+    noc_js = (UI / "noc" / "app.js").read_text()
+    assert "current_state" in noc_js, "ops hero must read the agent-authored line"
+    for js in ((UI / "app.js").read_text(), noc_js):
+        # the old hardcoded first-person sentence must be gone from the UI
+        assert "making myself good enough" not in js
+        assert "setting myself up" not in js
