@@ -597,6 +597,7 @@ async def build_overview(
     heartbeat_store: HeartbeatStore,
     ability_store: AbilityStore | None = None,
     next_step_store: NextStepStore | None = None,
+    automation_store: Any | None = None,
 ) -> dict[str, Any]:
     from . import DEPENDENCIES, CuriosityPlugin, missing_dependencies  # runtime state, not import-time
 
@@ -800,6 +801,18 @@ async def build_overview(
         except Exception:  # noqa: BLE001
             log.debug("intake decisions read failed", exc_info=True)
 
+    # 11.006/M5: automations feed both the journey (services + waiting) and
+    # the Operational tab. Best-effort like every other read here.
+    automations_list: list[dict[str, Any]] = []
+    if automation_store is not None and active is not None:
+        try:
+            automations_list = await automation_store.list(include_retired=True)
+        except Exception:  # noqa: BLE001
+            log.debug("automations read failed", exc_info=True)
+    live_automations = [a for a in automations_list if a["state"] != "retired"]
+
+    from .automations import services_block
+
     return {
         "generated_at": now.isoformat(),
         "plugin_version": CuriosityPlugin.manifest.version,
@@ -814,8 +827,11 @@ async def build_overview(
             value_log=value_log,
             next_steps=next_steps_recent,
             intake=intake,
+            services=services_block(live_automations),
+            automations=live_automations,
             now=now,
         ),
+        "automations": automations_list,
         "mission": active,
         "confirmation": confirmation,
         "next_step": next_step,

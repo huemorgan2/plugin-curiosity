@@ -306,7 +306,9 @@ def _now_next(
 
 
 def _waiting(
-    loops_open: list[dict[str, Any]], mission: dict[str, Any]
+    loops_open: list[dict[str, Any]],
+    mission: dict[str, Any],
+    automations: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any] | None:
     items: list[dict[str, Any]] = []
     for lp in loops_open:
@@ -342,6 +344,22 @@ def _waiting(
                 "object_id": mission.get("id"),
             }
         )
+    # an automation waiting on sign-off gets a real button too (phase07):
+    # Approve posts a muted moment carrying the automation id
+    for a in automations or []:
+        if a.get("state") == "awaiting_your_signoff":
+            items.append(
+                {
+                    "text": (
+                        f"Look over the sample runs of “{a.get('what') or ''}” "
+                        "and give it your OK — or say what to change."
+                    ),
+                    "unlock": "it starts running for you (extra watch first)",
+                    "cost": "about 2 minutes",
+                    "action": "approve_automation",
+                    "object_id": a.get("id"),
+                }
+            )
     if not items:
         return None
     n = len(items)
@@ -475,7 +493,8 @@ def build_journey(
     value_log: list[dict[str, Any]],
     next_steps: list[dict[str, Any]],
     intake: list[dict[str, Any]],
-    services: list[dict[str, Any]] | None = None,
+    services: dict[str, Any] | list[dict[str, Any]] | None = None,
+    automations: list[dict[str, Any]] | None = None,
     rules: dict[str, Any] | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any] | None:
@@ -493,7 +512,7 @@ def build_journey(
         (str(v.get("delivered_at")) for v in value_log if v.get("delivered_at")),
         default=None,
     )
-    waiting = _waiting(loops_open, mission)
+    waiting = _waiting(loops_open, mission, automations)
     waiting_count = len(waiting["items"]) if waiting else 0
 
     out: dict[str, Any] = {

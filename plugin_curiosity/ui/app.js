@@ -190,6 +190,9 @@ const SAY = {
     `Do not start it. Ask the owner in chat what should be different.`,
   approve: (id) => `The owner clicked "Approve" on the setup plan (mission id ${id}). ` +
     `Record the plan approval (advance the setup stage) and say what you'll do first.`,
+  approveAutomation: (id) => `The owner clicked "Approve" on the automation's sample runs (automation id ${id}). ` +
+    `This click is their sign-off — record it now (automation_signoff) and say in one line ` +
+    `that it starts under extra watch.`,
 };
 
 // Tools each button's reaction turn may call (063) — recording tools plus the
@@ -198,6 +201,7 @@ const MOMENT_TOOLS = {
   confirm: ['mission_confirm', 'current_state_set'],
   go: ['next_step_start', 'current_state_set'],
   approve: ['phase_advance', 'stage_set', 'current_state_set'],
+  approveAutomation: ['automation_signoff', 'current_state_set'],
 };
 
 // ---- render -------------------------------------------------------------------
@@ -343,7 +347,9 @@ function renderWaiting(w) {
   $('waiting-headline').textContent = w.headline;
   $('waits').innerHTML = w.items.map((it, i) => {
     const btn = it.action === 'approve'
-      ? `<button class="btn primary" data-approve="${esc(it.object_id)}" data-i="${i}">Approve</button>` : '';
+      ? `<button class="btn primary" data-approve="${esc(it.object_id)}" data-i="${i}">Approve</button>`
+      : it.action === 'approve_automation'
+        ? `<button class="btn primary" data-approve-automation="${esc(it.object_id)}" data-i="${i}">Approve</button>` : '';
     const unlock = it.unlock ? ` <span class="unlock">→ unlocks <i>${esc(it.unlock)}</i></span>` : '';
     const cost = it.cost ? ` <span class="unlock">· ${esc(it.cost)}</span>` : '';
     return `<div class="wait"><span class="dot"></span>` +
@@ -355,6 +361,13 @@ function renderWaiting(w) {
     b.onclick = () => {
       b.disabled = true;
       sendMoment(b, SAY.approve(b.dataset.approve), 'Plan approved', MOMENT_TOOLS.approve);
+    };
+  });
+  $('waits').querySelectorAll('[data-approve-automation]').forEach((b) => {
+    b.onclick = () => {
+      b.disabled = true;
+      sendMoment(b, SAY.approveAutomation(b.dataset.approveAutomation),
+        'Sign-off recorded', MOMENT_TOOLS.approveAutomation);
     };
   });
 }

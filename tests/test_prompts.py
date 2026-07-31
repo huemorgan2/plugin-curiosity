@@ -165,11 +165,16 @@ def test_prompt_budget_sanity():
     # 0.13.0 (11.001/M1) nudged the budget: the milestone mandate (readiness
     # colors, expected_result on the next 1-2) replaced the dated-goal batch
     assert len(_KICKOFF_CONTENT.format(statement="x", wiki_note="", confirm_note="")) < 15800
+    # 0.17.0 (11.006/M5) raised both phase branches: the automation-loop rule
+    # (register standing work, sample sign-off before any autonomous run,
+    # hypercare with announced promotion, adoption honesty, pause-on-a-word)
+    # rides the base fragment. A correctness contract: the alternative is
+    # invisible standing automations with no owner gate.
     # 0.13.0: an unconfirmed mission carries the confirm-gate line (~350 chars)
-    assert len(prompt_fragment(MISSION, "setup")) < 15700
+    assert len(prompt_fragment(MISSION, "setup")) < 17100
     wiki_bound = dict(MISSION, wiki_id="grow-signups-abc123")
-    assert len(prompt_fragment(wiki_bound, "setup")) < 15900
-    assert len(prompt_fragment(wiki_bound, "work")) < 8200
+    assert len(prompt_fragment(wiki_bound, "setup")) < 17300
+    assert len(prompt_fragment(wiki_bound, "work")) < 9500
 
 
 def test_owner_words_covers_chat_and_tool_output_translation():

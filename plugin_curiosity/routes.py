@@ -16,6 +16,7 @@ from pydantic import BaseModel
 
 from . import comms, overview, wikibind
 from .abilities import AbilityStore
+from .automations import AutomationStore
 from .goals import GoalStore
 from .loops import LoopStore
 from .mission import MissionStore
@@ -135,6 +136,7 @@ def register_routes(app, ctx):
     heartbeat_store = HeartbeatStore(ctx.db_session_factory)
     ability_store = AbilityStore(ctx.db_session_factory)
     next_step_store = NextStepStore(ctx.db_session_factory)
+    automation_store = AutomationStore(ctx.db_session_factory)
 
     @router.get("/missions/overview")
     async def missions_overview(user=Depends(get_current_user)):
@@ -147,6 +149,7 @@ def register_routes(app, ctx):
             heartbeat_store=heartbeat_store,
             ability_store=ability_store,
             next_step_store=next_step_store,
+            automation_store=automation_store,
         )
 
     @router.get("/missions/{mission_id}")

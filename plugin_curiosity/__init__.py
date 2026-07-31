@@ -52,6 +52,7 @@ except ImportError:  # pragma: no cover - older core
 
 from . import (
     abilities,
+    automations,
     comms,
     engine,
     feedback,
@@ -66,6 +67,7 @@ from . import (
     telemetry,
 )
 from .abilities import AbilityStore
+from .automations import AutomationStore
 from .feedback import FeedbackStore
 from .goals import GoalStore
 from .loops import LoopStore
@@ -466,7 +468,7 @@ if "prompt_overrides" in getattr(PluginManifest, "model_fields", {}):
 class CuriosityPlugin(LunaPlugin):
     manifest = PluginManifest(
         name="plugin-curiosity",
-        version="0.16.1",
+        version="0.17.0",
         description=(
             "Mission-driven curiosity: research, wiki-building, nightly dreams, "
             "self-set goals, weekly mission reviews, proactive reflections, and "
@@ -502,6 +504,7 @@ class CuriosityPlugin(LunaPlugin):
         self._heartbeats: HeartbeatStore | None = None
         self._feedback: FeedbackStore | None = None
         self._next_steps: NextStepStore | None = None
+        self._automations: AutomationStore | None = None
         self._reflections: comms.ReflectionLog | None = None
         self._ctx: PluginContext | None = None
         self._activated = False
@@ -524,6 +527,7 @@ class CuriosityPlugin(LunaPlugin):
         self._heartbeats = HeartbeatStore(ctx.db_session_factory)
         self._feedback = FeedbackStore(ctx.db_session_factory)
         self._next_steps = NextStepStore(ctx.db_session_factory)
+        self._automations = AutomationStore(ctx.db_session_factory)
         self._reflections = comms.ReflectionLog(ctx.db_session_factory)
         self._ctx = ctx
         _plugin = self
@@ -592,6 +596,9 @@ class CuriosityPlugin(LunaPlugin):
         # 11.002/M2: next-step cards — ungated by design (scheduled and muted
         # turns must always be able to post/close their card)
         next_steps.register_tools(ctx, self._next_steps)
+        # 11.006/M5: the automation loop — build → sample sign-off →
+        # hypercare → run, gates enforced in the tool layer
+        automations.register_tools(ctx, self._automations)
         # 0.9.14: the mission gate, tool layer — the dojo caught the blitz
         # surviving the prompt-only gate (the tool schemas still advertised
         # complete_setup + every field). Wrap plugin_onboarding's handlers:

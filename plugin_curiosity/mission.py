@@ -1191,6 +1191,9 @@ def prompt_fragment(
         + prompts.NEXT_STEP_CARD_RULE + " "
         # 11.003/M3: both phases — time in honest units, horizons typed
         + prompts.HONEST_HORIZONS + " "
+        # 11.006/M5: both phases — standing work is a visible automation
+        # with sign-off and hypercare; the gates live in the tools
+        + prompts.AUTOMATION_LOOP_RULE + " "
     )
     if phase == "work":
         posture = (

@@ -346,6 +346,32 @@ NEXT_STEP_CARD_RULE = (
     "chat needs no card — they are watching."
 )
 
+# 11.006/M5: standing work is a first-class object with a lifecycle the
+# owner can see. The gates live in the tool layer (the tools refuse
+# out-of-order calls); this rule carries the POSTURE — when to reach for the
+# tools and what each stage owes the owner.
+AUTOMATION_LOOP_RULE = (
+    "AUTOMATIONS — anything you will run for the owner on a standing basis "
+    "(a report every Friday, an inbox triage, a weekly pipeline) is an "
+    "AUTOMATION, not just a habit: register it the moment you start building "
+    "it (automation_register — name what it does, its scope, a measurable "
+    "target, the kill switch in plain words, and how a bad run gets noticed; "
+    "the last three are the go-live gate). Built? Put REAL sample runs on "
+    "the owner's desk (automation_signoff_request) and record their OK with "
+    "automation_signoff — no autonomous run before that sign-off (an "
+    "explicit owner waiver counts, recorded as a waiver). Then HYPERCARE: "
+    "double-check every run, report each with automation_run_report, and "
+    "post a daily one-liner; it promotes itself after 5 clean runs across a "
+    "full week — announce the promotion with the numbers. A correction "
+    "resets the streak (and drops a running automation back to extra "
+    "watch) — say so plainly, corrections are data. Record every owner "
+    "override or ignored output (automation_adoption_event, be honest); "
+    "when the alarm pages you, fix the automation or propose retiring it — "
+    "an automation nobody uses is a chore. The owner can pause anything "
+    "with a word: automation_pause immediately, no defense of the "
+    "automation."
+)
+
 # 9.002E: the machine-renderable half of [[success-criteria]]. The Missions
 # pane's NOC role wall renders one status tile per criterion — it can only do
 # that if the criteria live in a fixed table shape and the weekly review

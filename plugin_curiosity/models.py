@@ -432,6 +432,61 @@ class NextStep(Base):
     )
 
 
+class Automation(Base):
+    """One standing automation the agent runs for the owner (11.006/M5).
+
+    Build → sample sign-off → hypercare → run: `state` is one of "building" |
+    "awaiting_your_signoff" | "hypercare" | "running" | "paused" | "retired".
+    The go-live gate lives in the store: an automation cannot leave `building`
+    without a kill switch, a measurable target, and failure detection — and it
+    cannot start running for real without `signoff_at` (owner approval, or an
+    explicit recorded waiver — `signoff_kind` says which). Hypercare exits by
+    promotion math only: `clean_runs` ≥ threshold across a full weekly cycle
+    with zero corrections (a correction RESETS the counter). `overrides` /
+    `ignores` are the adoption telemetry — enough of them pages the agent to
+    fix the automation or propose retiring it."""
+
+    __tablename__ = "curiosity_automations"
+
+    id: Mapped[_uuid.UUID] = mapped_column(UUID(), primary_key=True, default=_uuid.uuid4)
+    mission_id: Mapped[_uuid.UUID] = mapped_column(UUID(), nullable=False, index=True)
+    what: Mapped[str] = mapped_column(Text, nullable=False)
+    scope: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    target: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    kill_switch: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    failure_detect: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    state: Mapped[str] = mapped_column(
+        String(24), default="building", nullable=False, index=True
+    )
+    samples: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    signoff_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    signoff_kind: Mapped[str] = mapped_column(String(12), default="", nullable=False)
+    signoff_note: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    hypercare_since: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    clean_runs: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    corrections: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    overrides: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    ignores: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    value_refs: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    state_note: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    last_run_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    promoted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+
 class Flag(Base):
     """Tiny key/value state register (phase 8.1: `install_kickoff_sent`)."""
 
@@ -459,6 +514,7 @@ ALL_TABLES = (
     OwnerDecision.__table__,
     FeedbackNote.__table__,
     NextStep.__table__,
+    Automation.__table__,
     Flag.__table__,
 )
 
