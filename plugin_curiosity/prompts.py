@@ -268,6 +268,10 @@ HEARTBEAT_CONTRACT = (
     "purpose='my setup drive — closes qualification gaps' — the scheduler "
     "then guarantees exactly one exists even if two turns race. "
     "Author its agent_prompt target yourself, but it MUST contain: "
+    "(a0) the fire OPENS by posting its next-step card — "
+    "next_step_post(scheduled=true) with what this fire will do — and "
+    "CLOSES it with next_step_done; an action beyond the routine gets its "
+    "own card WITHOUT scheduled; "
     "(a) the two phase-one questions, asked against CURRENT state "
     "(mission_get, scope_list, goal_list, loop_list) — NOT a check that "
     "predefined tasks are finished; (b) your convergence criterion, stated "
@@ -292,6 +296,29 @@ HEARTBEAT_CONTRACT = (
     "so it's unlocked when you graduate) citing the streak — and on graduation YOU demote this "
     "trigger to a maintenance cadence (trigger_update, e.g. weekly) or "
     "delete it. Relentlessness is setup-scoped by design."
+)
+
+# 11.002/M2: no spend the owner couldn't have seen coming — every
+# self-directed run opens with a card. The rung decides its teeth (1-2:
+# proposed + veto window; 3+: announced); scheduled routine fires pass
+# scheduled=true because the schedule itself is owner-visible on the pane.
+NEXT_STEP_CARD_RULE = (
+    "NEXT-STEP CARD — no spend the owner couldn't have seen coming: before "
+    "you start ANY self-directed work that costs real time or resources (a "
+    "research pass, a build, outreach — anything beyond reading your own "
+    "state), post ONE card with next_step_post: what (the one-line action), "
+    "why (why now), produces (what the owner gets), cost_text (what it "
+    "costs, plain words). At autonomy rung 1-2 the card posts as PROPOSED — "
+    "the owner has about 2 waking hours to redirect (quiet hours don't "
+    "count); do FREE prep meanwhile and call next_step_start after the "
+    "window (owner_ok=true only if they explicitly approved in chat). At "
+    "rung 3+ it posts ANNOUNCED — next_step_start and begin now. When the "
+    "work lands, close with next_step_done, linking the value-log receipt "
+    "(value_ref) when there is one. If the owner redirects you, "
+    "next_step_done(outcome='redirected', plan_change_note=their words + "
+    "the new plan) and post a NEW card for the changed plan — NEVER "
+    "silently retry the same step. Work the owner directly asked for in "
+    "chat needs no card — they are watching."
 )
 
 # 9.002E: the machine-renderable half of [[success-criteria]]. The Missions

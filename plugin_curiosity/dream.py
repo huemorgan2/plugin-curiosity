@@ -48,5 +48,12 @@ DREAM_TARGET = (
     "quiet hours and post in the morning; a queued/blocked result is fine.\n"
     "5. Do not message the owner directly — the queued thought is the only "
     "output. If today's material was too thin for a thought worth waking up "
-    "to, skip step 4 entirely; a silent night beats a hollow thought."
+    "to, skip step 4 entirely; a silent night beats a hollow thought.\n"
+    "6. If tonight consolidated anything (you did NOT stop at the gate), "
+    "leave the receipt: next_step_post(retro=true, what='nightly "
+    "consolidation', produces=what you merged/tightened in one line, "
+    "cost_text='one quiet-hours pass') — the dream is exempt from posting a "
+    "card BEFORE (the owner sleeps; the schedule is theirs already), the "
+    "after-the-fact card keeps the record honest. A quiet night posts "
+    "nothing."
 )

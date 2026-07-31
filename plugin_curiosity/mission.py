@@ -1187,6 +1187,8 @@ def prompt_fragment(
         + prompts.FEEDBACK_CONTRACT + " "
         + prompts.DECISION_LEDGER + " "
         + prompts.PROACTIVE_RULE + " "
+        # 11.002/M2: both phases — self-directed spend opens with a card
+        + prompts.NEXT_STEP_CARD_RULE + " "
     )
     if phase == "work":
         posture = (

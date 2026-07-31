@@ -377,6 +377,50 @@ class FeedbackNote(Base):
     acted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class NextStep(Base):
+    """One next-step card (11.002/M2): no spend the owner couldn't have seen
+    coming — every self-directed run opens with a card saying what, why, what
+    it produces, and what it costs.
+
+    `status`: "proposed" (rung 1-2 — the owner holds a veto window until
+    `wait_until`; quiet hours don't consume it) | "announced" (rung 3+, or a
+    scheduled routine the owner already sees on their pane) | "running" |
+    "done" | "redirected" (owner said no — `plan_change_note` is REQUIRED,
+    silent retry is a contract violation). `value_ref` links the value-log
+    receipt the finished work produced. `source` names the run that posted
+    it ("agent", "daily", "heartbeat", "kickoff", "dream", "review")."""
+
+    __tablename__ = "curiosity_next_steps"
+
+    id: Mapped[_uuid.UUID] = mapped_column(UUID(), primary_key=True, default=_uuid.uuid4)
+    mission_id: Mapped[_uuid.UUID] = mapped_column(UUID(), nullable=False, index=True)
+    what: Mapped[str] = mapped_column(Text, nullable=False)
+    why: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    produces: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    cost_text: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16), default="proposed", nullable=False, index=True
+    )
+    wait_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    value_ref: Mapped[_uuid.UUID | None] = mapped_column(UUID(), nullable=True)
+    plan_change_note: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    source: Mapped[str] = mapped_column(String(24), default="agent", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+
 class Flag(Base):
     """Tiny key/value state register (phase 8.1: `install_kickoff_sent`)."""
 
@@ -403,6 +447,7 @@ ALL_TABLES = (
     HeartbeatReport.__table__,
     OwnerDecision.__table__,
     FeedbackNote.__table__,
+    NextStep.__table__,
     Flag.__table__,
 )
 

@@ -150,16 +150,21 @@ def test_prompt_budget_sanity():
     # 0.12.0 (jobs-dojo bug 3) raised the kickoff budget: the already-supplied
     # check (never re-ask for data the owner just gave) is a correctness
     # contract, not verbosity — the artifact re-asked for a pasted SaaS ledger.
-    assert len(DAILY_RESEARCH_TARGET) < 5500
-    assert len(WEEKLY_REVIEW_TARGET) < 8800
+    # 0.14.0 (11.002/M2) raised every surface: the next-step card rule (no
+    # spend the owner couldn't have seen coming — post the card BEFORE the
+    # work, veto window at rung 1-2, redirect needs a plan_change_note) rides
+    # both phase branches, and each scheduled fire gained its CARD FIRST step.
+    # A correctness contract: the alternative is invisible self-directed spend.
+    assert len(DAILY_RESEARCH_TARGET) < 6200
+    assert len(WEEKLY_REVIEW_TARGET) < 9200
     # 0.13.0 (11.001/M1) nudged the budget: the milestone mandate (readiness
     # colors, expected_result on the next 1-2) replaced the dated-goal batch
-    assert len(_KICKOFF_CONTENT.format(statement="x", wiki_note="", confirm_note="")) < 13800
+    assert len(_KICKOFF_CONTENT.format(statement="x", wiki_note="", confirm_note="")) < 14500
     # 0.13.0: an unconfirmed mission carries the confirm-gate line (~350 chars)
-    assert len(prompt_fragment(MISSION, "setup")) < 13500
+    assert len(prompt_fragment(MISSION, "setup")) < 15000
     wiki_bound = dict(MISSION, wiki_id="grow-signups-abc123")
-    assert len(prompt_fragment(wiki_bound, "setup")) < 13700
-    assert len(prompt_fragment(wiki_bound, "work")) < 6100
+    assert len(prompt_fragment(wiki_bound, "setup")) < 15200
+    assert len(prompt_fragment(wiki_bound, "work")) < 7100
 
 
 def test_owner_words_covers_chat_and_tool_output_translation():

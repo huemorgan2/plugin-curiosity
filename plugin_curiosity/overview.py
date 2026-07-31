@@ -42,10 +42,12 @@ from .models import (
     HeartbeatReport,
     Loop,
     Mission,
+    NextStep,
     PlanChange,
     Scope,
     ValueEntry,
 )
+from .next_steps import NextStepStore, _step_dict
 from .scopes import (
     _KIND_LABEL,
     SCOPE_KINDS,
@@ -536,9 +538,16 @@ def _activity(
     goals: list[dict],
     loops_all: list[dict],
     limit: int = 30,
+    next_steps: list[dict] | None = None,
 ) -> list[dict[str, Any]]:
     """One merged, newest-first stream of everything that happened."""
     events: list[tuple[str, dict]] = []
+    for st in next_steps or []:
+        at = st.get("finished_at") or st.get("started_at") or st.get("created_at") or ""
+        text = f"[{st['status']}] {st['what']}"
+        if st.get("plan_change_note"):
+            text += f" — redirected: {st['plan_change_note']}"
+        events.append((at, {"kind": "next_step", "text": text, "at": at}))
     for pc in plan_changes:
         text = pc["entry"]
         if pc.get("kind") == "role_pivot":
@@ -586,6 +595,7 @@ async def build_overview(
     loop_store: LoopStore,
     heartbeat_store: HeartbeatStore,
     ability_store: AbilityStore | None = None,
+    next_step_store: NextStepStore | None = None,
 ) -> dict[str, Any]:
     from . import DEPENDENCIES, CuriosityPlugin, missing_dependencies  # runtime state, not import-time
 
@@ -718,7 +728,33 @@ async def build_overview(
                 "confirmed_at": active.get("confirmed_at"),
                 "label": "confirmed" if confirmed else "waiting for your yes",
             }
+    # 11.002/M2: the next-step card — what the agent is about to spend (or is
+    # spending) and, on a proposed card, the owner's live veto CTA.
+    next_step = None
+    next_steps_recent: list[dict[str, Any]] = []
+    if next_step_store is not None:
+        try:
+            next_step = await next_step_store.current()
+            next_steps_recent = await next_step_store.list(limit=10)
+        except Exception:  # noqa: BLE001 — the pane must never 500 on a card
+            log.debug("next-step read failed", exc_info=True)
     needs = _needs_from_you(loops_open, setup_stage, agent_phase, recent_pivots)
+    if (
+        next_step is not None
+        and next_step["status"] == "proposed"
+        and (wu := _parse_dt(next_step.get("wait_until"))) is not None
+        and wu > now
+    ):
+        needs.insert(0, {
+            "kind": "next_step",
+            "text": (
+                f"About to: {next_step['what']} — reply in chat to redirect; "
+                "if you say nothing it goes ahead on its own in a couple of "
+                "waking hours."
+            ),
+            "step_id": next_step["id"],
+            "wait_until": next_step.get("wait_until"),
+        })
     if confirmation is not None and not confirmation["confirmed"]:
         needs.insert(0, {
             "kind": "confirm",
@@ -735,6 +771,8 @@ async def build_overview(
         "blocked": blocked,
         "mission": active,
         "confirmation": confirmation,
+        "next_step": next_step,
+        "next_steps_recent": next_steps_recent,
         "missions": all_missions,
         "state": state,
         "setup": setup,
@@ -759,7 +797,10 @@ async def build_overview(
         "next_up": _what_next(agent_phase, setup_stage, triggers),
         "wiki_shelf": shelf,
         "noc": noc,
-        "activity": _activity(plan_changes, value_log, heartbeats, goals_list, loops_all),
+        "activity": _activity(
+            plan_changes, value_log, heartbeats, goals_list, loops_all,
+            next_steps=next_steps_recent,
+        ),
     }
 
 
@@ -795,6 +836,10 @@ async def mission_detail(sf, mission_id: str) -> dict[str, Any] | None:
             (await s.execute(select(HeartbeatReport).where(HeartbeatReport.mission_id == key).order_by(HeartbeatReport.created_at.desc()).limit(30)))
             .scalars().all()
         )
+        step_rows = (
+            (await s.execute(select(NextStep).where(NextStep.mission_id == key).order_by(NextStep.created_at.desc()).limit(30)))
+            .scalars().all()
+        )
         ability_rows = (
             (await s.execute(select(Ability).where(Ability.mission_id == key).order_by(Ability.sort_order, Ability.created_at)))
             .scalars().all()
@@ -826,4 +871,5 @@ async def mission_detail(sf, mission_id: str) -> dict[str, Any] | None:
                 for pc in pc_rows
             ],
             "heartbeats": [_report_dict(r) for r in hb_rows],
+            "next_steps": [_step_dict(st) for st in step_rows],
         }

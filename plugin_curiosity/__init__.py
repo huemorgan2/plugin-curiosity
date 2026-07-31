@@ -59,6 +59,7 @@ from . import (
     goals,
     loops,
     mission,
+    next_steps,
     research,
     scopes,
     setup_gate,
@@ -76,6 +77,7 @@ from .mission import (
     rewrite_onboarding_addendum,
 )
 from .models import ALL_TABLES, Flag, apply_additive_migrations
+from .next_steps import NextStepStore
 from .scopes import ScopeStore
 from .telemetry import HeartbeatStore
 
@@ -464,7 +466,7 @@ if "prompt_overrides" in getattr(PluginManifest, "model_fields", {}):
 class CuriosityPlugin(LunaPlugin):
     manifest = PluginManifest(
         name="plugin-curiosity",
-        version="0.13.0",
+        version="0.14.0",
         description=(
             "Mission-driven curiosity: research, wiki-building, nightly dreams, "
             "self-set goals, weekly mission reviews, proactive reflections, and "
@@ -499,6 +501,7 @@ class CuriosityPlugin(LunaPlugin):
         self._abilities: AbilityStore | None = None
         self._heartbeats: HeartbeatStore | None = None
         self._feedback: FeedbackStore | None = None
+        self._next_steps: NextStepStore | None = None
         self._reflections: comms.ReflectionLog | None = None
         self._ctx: PluginContext | None = None
         self._activated = False
@@ -520,6 +523,7 @@ class CuriosityPlugin(LunaPlugin):
         self._abilities = AbilityStore(ctx.db_session_factory)
         self._heartbeats = HeartbeatStore(ctx.db_session_factory)
         self._feedback = FeedbackStore(ctx.db_session_factory)
+        self._next_steps = NextStepStore(ctx.db_session_factory)
         self._reflections = comms.ReflectionLog(ctx.db_session_factory)
         self._ctx = ctx
         _plugin = self
@@ -585,6 +589,9 @@ class CuriosityPlugin(LunaPlugin):
         comms.register_tools(ctx, self._reflections)
         telemetry.register_tools(ctx, self._heartbeats)
         feedback.register_tools(ctx, self._feedback)
+        # 11.002/M2: next-step cards — ungated by design (scheduled and muted
+        # turns must always be able to post/close their card)
+        next_steps.register_tools(ctx, self._next_steps)
         # 0.9.14: the mission gate, tool layer — the dojo caught the blitz
         # surviving the prompt-only gate (the tool schemas still advertised
         # complete_setup + every field). Wrap plugin_onboarding's handlers:
@@ -605,7 +612,7 @@ class CuriosityPlugin(LunaPlugin):
                 hooks.register("prompt.assemble", self._occupy_prompt, priority=60)
             except Exception:  # noqa: BLE001
                 log.warning("prompt.assemble registration failed", exc_info=True)
-        log.info("plugin-curiosity loaded (tools=25)")
+        log.info("plugin-curiosity loaded (tools=28)")
 
     def _register_config_section(self, ctx: PluginContext) -> None:
         """0.10.0 (phase-05 pattern, proven in goal-seek): a tiny read-only

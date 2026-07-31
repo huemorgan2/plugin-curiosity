@@ -97,6 +97,9 @@ KICKOFF_TOOLS = [
     # if the scheduler isn't installed).
     "trigger_create",
     "trigger_list",
+    # 11.002/M2: the deep pass's card is posted plugin-side before this turn
+    # spawns (announced+running); the turn closes it at the end.
+    "next_step_done",
 ]
 
 KICKOFF_TITLE = "Mission kickoff"
@@ -276,12 +279,22 @@ S2 — milestones, your own drive, and the post:
    Close the artifact with: "this is my job description and what success
    looks like — all drafts; please read them and approve, or push back now;
    your approval lets me go deeper."
+13. LAST: a next-step card for this pass was posted before the turn started
+   — close it now with next_step_done (value_ref = the value-log entry from
+   step 8 if you logged one).
 """
 )
 
 DAILY_RESEARCH_TARGET = (
     "[curiosity] Daily pass. You OWN this mission — one focused pass "
     "(~10 tool calls). " + PHASE_CHECK + "\n"
+    "CARD FIRST (before step 0): this fire is self-directed spend — post its "
+    "next-step card: next_step_post(what=this pass's one action, why, "
+    "produces, cost_text, scheduled=true — this run rides your owner-visible "
+    "schedule) then next_step_start. An action BEYOND the routine (new "
+    "outreach, money, a third party) gets its OWN card WITHOUT scheduled — "
+    "at rung 1-2 it waits out its veto window; start it a later turn. At the "
+    "end of the pass, next_step_done (value_ref if you logged a win).\n"
     "0. LOOP PATROL (both phases), before anything else: loop_list your open "
     "loops. For each loop past its next_nudge_at, act NOW — re-ask it "
     "REPHRASED, naming the goal it blocks (then loop_nudge it); or try a "
@@ -666,6 +679,19 @@ async def spawn_deep_kickoff_once(
         return "already started"
     _deep_claims.add(mid)
     await _deep_flag_set(sf, mid, "started")
+    # 11.002/M2: the pass's card, plugin-side — deterministic, before the
+    # spend; the kickoff turn closes it (step 13). Best-effort by design.
+    from .next_steps import record_scheduled_step
+
+    await record_scheduled_step(
+        sf,
+        "Deep setup pass — research the mission, draft my job description, "
+        "commit milestones",
+        why="the mission direction is settled (confirmed or timed out)",
+        produces="job description, success criteria, milestones, first value",
+        cost_text="one long working turn (~20 tool calls), a few web searches",
+        source="kickoff",
+    )
     try:
         asyncio.get_running_loop().create_task(  # noqa: RUF006
             run_kickoff(

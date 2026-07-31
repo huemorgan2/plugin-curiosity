@@ -19,6 +19,7 @@ from .abilities import AbilityStore
 from .goals import GoalStore
 from .loops import LoopStore
 from .mission import MissionStore
+from .next_steps import NextStepStore
 from .scopes import ScopeStore
 from .telemetry import HeartbeatStore
 
@@ -133,6 +134,7 @@ def register_routes(app, ctx):
     loop_store = LoopStore(ctx.db_session_factory)
     heartbeat_store = HeartbeatStore(ctx.db_session_factory)
     ability_store = AbilityStore(ctx.db_session_factory)
+    next_step_store = NextStepStore(ctx.db_session_factory)
 
     @router.get("/missions/overview")
     async def missions_overview(user=Depends(get_current_user)):
@@ -144,6 +146,7 @@ def register_routes(app, ctx):
             loop_store=loop_store,
             heartbeat_store=heartbeat_store,
             ability_store=ability_store,
+            next_step_store=next_step_store,
         )
 
     @router.get("/missions/{mission_id}")
