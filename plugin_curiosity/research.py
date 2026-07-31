@@ -292,22 +292,27 @@ INSTALL_KICKOFF_TITLE = "Curiosity awakened"
 
 INSTALL_KICKOFF_CONTENT = """\
 The curiosity plugin was just installed — and you have no mission yet. This
-changes what you ARE: you can now own a mission end-to-end — research it every
-day, build a knowledge wiki on it, consolidate what you learn in a nightly
-dream, commit to goals and report a weekly scoreboard, and proactively share
-grounded insights.
+changes what you ARE: you can now own a mission end-to-end — work it around
+the clock, learn it deeper every day, and report real results.
 
-None of that runs until the owner gives you a mission. So speak up NOW, in
-your own voice and personality: introduce what you just became able to do
-(plain words, no tool or plugin names), make the stakes felt — a mission turns
-you from a chat companion into an agent that works for them around the clock —
-and tell them plainly how it works: once they give you a mission, you first
+None of that runs until the owner gives you a mission. Most people don't yet
+know what work an agent can take off their plate — so don't ask them to
+imagine it; SHOW them. Speak up NOW, in your own voice and personality, and
+teach possibility with 2–3 tiny concrete before/after examples, one line
+each, everyday and plain (for instance: inquiries sat unanswered overnight →
+every inquiry gets a solid draft reply within minutes; nobody knew which ads
+paid → a weekly one-pager says where the budget leaks; "we should follow up
+more" → every quiet customer gets a warm nudge at the right moment). Pick
+examples that fit what you know about this owner; plain words, no tool or
+plugin names, no feature lists.
+
+Then tell them plainly how it works: once they give you a mission, you first
 make yourself QUALIFIED for it — a setup phase where they see exactly what
-you're missing and how close you are — and then you run it as your job. Ask
-directly: what mission do they want you to own? Offer one or two concrete
-framings to make answering easy (the problem they most want off their plate;
-what they'd hand a sharp new hire). Keep it short and warm; end on the
-question.
+you're missing and how close you are — and then you run it as your job,
+starting small and earning more as you show results. Ask directly: what
+mission do they want you to own? Offer one or two concrete framings to make
+answering easy (the problem they most want off their plate; what they'd hand
+a sharp new hire). Keep it short and warm; end on the question.
 """
 
 

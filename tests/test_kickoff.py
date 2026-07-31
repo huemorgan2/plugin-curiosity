@@ -178,3 +178,25 @@ def test_install_kickoff_content_asks_for_mission_now():
     assert "no mission yet" in text
     assert "NOW" in text
     assert "end" in text and "question" in text
+
+
+def test_install_kickoff_teaches_possibility_not_features():
+    """Phase11/phase01: the kickoff teaches what an agent can do with tiny
+    before/after examples instead of asking the owner to imagine it."""
+    from plugin_curiosity.research import INSTALL_KICKOFF_CONTENT
+
+    text = INSTALL_KICKOFF_CONTENT
+    assert "before/after" in text
+    assert text.count("→") >= 2  # concrete example arrows, not abstractions
+    assert "plugin names" in text and "feature lists" in text
+    assert "starting small" in text  # spend follows value, from day one
+
+
+def test_gate_flow_folds_possibility_into_first_ask():
+    """Phase11/phase01: the very first question carries one tiny before/after
+    example — the owner shouldn't have to imagine what an agent can do."""
+    from plugin_curiosity.mission import MISSION_FIRST_FLOW, MISSION_GATE_FLOW
+
+    for flow in (MISSION_GATE_FLOW, MISSION_FIRST_FLOW):
+        assert "before/after" in flow
+        assert "FIRST question" in flow
