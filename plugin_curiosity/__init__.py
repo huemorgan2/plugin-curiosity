@@ -61,6 +61,7 @@ from . import (
     loops,
     mission,
     next_steps,
+    proposals,
     research,
     scopes,
     setup_gate,
@@ -80,6 +81,7 @@ from .mission import (
 )
 from .models import ALL_TABLES, Flag, apply_additive_migrations
 from .next_steps import NextStepStore
+from .proposals import ProposalStore
 from .scopes import ScopeStore
 from .telemetry import HeartbeatStore
 
@@ -468,7 +470,7 @@ if "prompt_overrides" in getattr(PluginManifest, "model_fields", {}):
 class CuriosityPlugin(LunaPlugin):
     manifest = PluginManifest(
         name="plugin-curiosity",
-        version="0.18.0",
+        version="0.19.0",
         description=(
             "Mission-driven curiosity: research, wiki-building, nightly dreams, "
             "self-set goals, weekly mission reviews, proactive reflections, and "
@@ -505,6 +507,7 @@ class CuriosityPlugin(LunaPlugin):
         self._feedback: FeedbackStore | None = None
         self._next_steps: NextStepStore | None = None
         self._automations: AutomationStore | None = None
+        self._proposals: ProposalStore | None = None
         self._reflections: comms.ReflectionLog | None = None
         self._ctx: PluginContext | None = None
         self._activated = False
@@ -528,6 +531,7 @@ class CuriosityPlugin(LunaPlugin):
         self._feedback = FeedbackStore(ctx.db_session_factory)
         self._next_steps = NextStepStore(ctx.db_session_factory)
         self._automations = AutomationStore(ctx.db_session_factory)
+        self._proposals = ProposalStore(ctx.db_session_factory)
         self._reflections = comms.ReflectionLog(ctx.db_session_factory)
         self._ctx = ctx
         _plugin = self
@@ -590,7 +594,7 @@ class CuriosityPlugin(LunaPlugin):
         scopes.register_tools(ctx, self._scopes)
         loops.register_tools(ctx, self._loops)
         abilities.register_tools(ctx, self._abilities)
-        comms.register_tools(ctx, self._reflections)
+        comms.register_tools(ctx, self._reflections, proposals=self._proposals)
         telemetry.register_tools(ctx, self._heartbeats)
         feedback.register_tools(ctx, self._feedback)
         # 11.002/M2: next-step cards — ungated by design (scheduled and muted
@@ -599,6 +603,9 @@ class CuriosityPlugin(LunaPlugin):
         # 11.006/M5: the automation loop — build → sample sign-off →
         # hypercare → run, gates enforced in the tool layer
         automations.register_tools(ctx, self._automations)
+        # 11.008/M7: the prediction-carrying proposal ledger — one open
+        # proposal at a time, enforced in the tool layer
+        proposals.register_tools(ctx, self._proposals)
         # 0.9.14: the mission gate, tool layer — the dojo caught the blitz
         # surviving the prompt-only gate (the tool schemas still advertised
         # complete_setup + every field). Wrap plugin_onboarding's handlers:

@@ -81,8 +81,8 @@ def test_weekly_titles_exact_and_branched():
         assert block in t, block
     assert "'none' is a finding too" in t
     assert "phase_advance" in t
-    # work branch blocks
-    for block in ("Done", "Insights", "Improve", "Next move"):
+    # work branch blocks — 11.008/M7: the 5-line note
+    for block in ("Ran", "Cost vs value", "Health", "Proposal", "Next move"):
         assert block in t, block
     assert "leave the toolkit better" in t
     # value first, ask last ("I need" alone also occurs inside the phase-one
@@ -160,8 +160,12 @@ def test_prompt_budget_sanity():
     # typed goal horizons, blocked ≠ late) rides both phase branches, the
     # kickoff, the daily, and the weekly. A correctness contract: the
     # alternative is the agent promising "3-5 days" it cannot mean.
+    # 0.19.0 (11.008/M7) raised the weekly budget: the work branch became the
+    # 5-line note with prediction discipline (metrics_snapshot verbatim, one
+    # proposal via proposal_open, 'No issues' honesty gate, incident weeks
+    # propose nothing) — a correctness contract; the note itself SHRANK.
     assert len(DAILY_RESEARCH_TARGET) < 7500
-    assert len(WEEKLY_REVIEW_TARGET) < 10400
+    assert len(WEEKLY_REVIEW_TARGET) < 11400
     # 0.13.0 (11.001/M1) nudged the budget: the milestone mandate (readiness
     # colors, expected_result on the next 1-2) replaced the dated-goal batch
     assert len(_KICKOFF_CONTENT.format(statement="x", wiki_note="", confirm_note="")) < 15800

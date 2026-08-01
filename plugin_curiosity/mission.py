@@ -69,6 +69,17 @@ MISSION_SCHEDULES: list[dict[str, str]] = [
         "target": review.WEEKLY_REVIEW_TARGET,
         "purpose": "weekly scoreboard for the owner",
     },
+    # 11.008/M7: the monthly value ledger — promised vs delivered. 09:45 on
+    # the 1st keeps it clear of the 09:00 daily (and the weekly when the 1st
+    # is a Monday). The expr matches scheduler-service grammar exactly:
+    # "on the 1st of every month at HH:MM".
+    {
+        "name": "curiosity-monthly-review",
+        "schedule_expr": "on the 1st of every month at 09:45",
+        "action_type": "agent_prompt",
+        "target": review.MONTHLY_REVIEW_TARGET,
+        "purpose": "monthly value report for the owner",
+    },
 ]
 
 # Wiki stubs seeded on mission_set: a hub page (holds the statement) linking

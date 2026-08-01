@@ -241,6 +241,7 @@ def ctx(store, sf):
     from plugin_curiosity.comms import ReflectionLog
     from plugin_curiosity.comms import register_tools as register_comms_tools
     from plugin_curiosity.mission import register_tools
+    from plugin_curiosity.proposals import ProposalStore
 
     c = types.SimpleNamespace(
         tool_registry=FakeToolRegistry(),
@@ -257,6 +258,7 @@ def ctx(store, sf):
 
     c.send_muted_message = send_muted_message
     c.reflections = ReflectionLog(sf)
+    c.proposal_store = ProposalStore(sf)
     register_tools(c, store)
-    register_comms_tools(c, c.reflections)
+    register_comms_tools(c, c.reflections, proposals=c.proposal_store)
     return c

@@ -138,6 +138,14 @@ def register_routes(app, ctx):
     next_step_store = NextStepStore(ctx.db_session_factory)
     automation_store = AutomationStore(ctx.db_session_factory)
 
+    # 11.008/M7: the adoption funnel, server-computed — ops surface; the
+    # agent-facing twin is the metrics_snapshot tool.
+    @router.get("/metrics")
+    async def metrics(user=Depends(get_current_user)):
+        from .telemetry import gather_metrics
+
+        return await gather_metrics(ctx, ctx.db_session_factory)
+
     @router.get("/missions/overview")
     async def missions_overview(user=Depends(get_current_user)):
         return await overview.build_overview(

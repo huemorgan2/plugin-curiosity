@@ -230,6 +230,208 @@ def compute_sentiment(
     return "neutral"
 
 
+# ---- adoption-funnel KPIs (11.008/M7) ----------------------------------
+#
+# Every number the weekly/monthly note cites is computed HERE from stored
+# rows — the agent reads metrics_snapshot and quotes it; it never does the
+# arithmetic itself (agents have no clock and worse calibration). Every KPI
+# is None when its source has no data yet: "no data" is an honest answer,
+# a fabricated denominator is not.
+
+
+def _hours(a: datetime | None, b: datetime | None) -> float | None:
+    a, b = _aware(a), _aware(b)
+    if a is None or b is None:
+        return None
+    return round((b - a).total_seconds() / 3600, 1)
+
+
+def _rate(hits: int, total: int) -> float | None:
+    return round(hits / total, 2) if total else None
+
+
+def compute_metrics(
+    *,
+    mission: dict[str, Any] | None = None,
+    values: list[dict[str, Any]] | None = None,
+    cards: list[dict[str, Any]] | None = None,
+    goals: list[dict[str, Any]] | None = None,
+    automations: list[dict[str, Any]] | None = None,
+    proposals: list[dict[str, Any]] | None = None,
+    boundaries: list[dict[str, Any]] | None = None,
+    incidents: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Pure funnel math over plain dicts (datetimes where noted). `boundaries`
+    / `incidents` None means the SOURCE is absent (goalseek not installed / no
+    incident ledger) — distinct from an installed source with zero rows."""
+    values = values or []
+    cards = cards or []
+    goals = goals or []
+    automations = automations or []
+    proposals = proposals or []
+    m = mission or {}
+
+    # funnel head: how long from first contact to a confirmed mission, and
+    # from there to the first value receipt (time-to-first-win)
+    confirmed = _hours(m.get("created_at"), m.get("confirmed_at"))
+    start = m.get("confirmed_at") or m.get("created_at")
+    first_win = None
+    if values:
+        first = min((_aware(v.get("delivered_at")) for v in values
+                     if v.get("delivered_at")), default=None)
+        first_win = _hours(start, first) if first else None
+    setup_days = None
+    if m.get("agent_phase") == "work":
+        h = _hours(m.get("created_at"), m.get("phase_entered_at"))
+        setup_days = round(h / 24, 1) if h is not None else None
+
+    # next-step cards: how often the owner redirected a proposed spend
+    closed = [c for c in cards if c.get("status") in ("done", "redirected")]
+    redirected = sum(1 for c in closed if c.get("status") == "redirected")
+
+    # expectation hit rate: of goals that RESOLVED, how many landed
+    resolved = [g for g in goals if g.get("status") in ("done", "dropped")]
+    hit = sum(1 for g in resolved if g.get("status") == "done")
+
+    # automations: hypercare exits + adoption honesty (no run counter exists,
+    # so overrides/ignores are reported as totals, never as a made-up rate)
+    entered = [a for a in automations if a.get("hypercare_since")]
+    promoted = [a for a in entered if a.get("promoted_at")]
+    exit_days = [
+        round(h / 24, 1)
+        for a in promoted
+        if (h := _hours(a.get("hypercare_since"), a.get("promoted_at"))) is not None
+    ]
+
+    # proposals: acceptance + prediction calibration (±30% band)
+    decided = [p for p in proposals
+               if p.get("status") in ("accepted", "declined", "done", "dropped")]
+    accepted = sum(1 for p in decided
+                   if p.get("status") in ("accepted", "done", "dropped"))
+    from .proposals import prediction_hit
+
+    scored = [
+        hit_
+        for p in proposals
+        if p.get("status") == "done"
+        and (hit_ := prediction_hit(
+            p.get("predicted_minutes"), p.get("actual_minutes"))) is not None
+    ]
+
+    bounds = None
+    if boundaries is not None:
+        bounds = {
+            "active": sum(1 for b in boundaries if b.get("status") == "active"),
+            "checks": sum(int(b.get("checks_count") or 0) for b in boundaries),
+            "exceptions": sum(int(b.get("denies_count") or 0) for b in boundaries),
+        }
+
+    self_report = None
+    if incidents is not None:
+        spans = [
+            h for i in incidents
+            if (h := _hours(i.get("happened_at"), i.get("reported_at"))) is not None
+        ]
+        self_report = round(sum(spans) / len(spans), 1) if spans else None
+
+    return {
+        "time_to_confirmed_mission_hours": confirmed,
+        "time_to_first_win_hours": first_win,
+        "setup_to_work_days": setup_days,
+        "cards_closed": len(closed),
+        "card_redirect_rate": _rate(redirected, len(closed)),
+        "expectation_hit_rate": _rate(hit, len(resolved)),
+        "goals_resolved": len(resolved),
+        "boundary_exceptions": bounds,
+        "time_to_self_report_hours": self_report,
+        "hypercare_entered": len(entered),
+        "hypercare_exit_rate": _rate(len(promoted), len(entered)),
+        "hypercare_exit_days_avg": (
+            round(sum(exit_days) / len(exit_days), 1) if exit_days else None
+        ),
+        "automation_overrides": sum(int(a.get("overrides") or 0) for a in automations),
+        "automation_ignores": sum(int(a.get("ignores") or 0) for a in automations),
+        "proposals_decided": len(decided),
+        "proposal_acceptance_rate": _rate(accepted, len(decided)),
+        "prediction_scored": len(scored),
+        "prediction_accuracy": _rate(sum(scored), len(scored)),
+    }
+
+
+async def _probe_boundaries(ctx: PluginContext) -> list[dict[str, Any]] | None:
+    """goalseek's policy_list, feature-detected: None when goalseek is absent
+    (the KPI then reads 'no data', never zero)."""
+    try:
+        reg = ctx.tool_registry.get("policy_list")
+    except Exception:  # noqa: BLE001
+        return None
+    if reg is None:
+        return None
+    try:
+        out = await reg.handler()
+        items = out.get("boundaries") if isinstance(out, dict) else None
+        return items if isinstance(items, list) else None
+    except Exception:  # noqa: BLE001
+        log.debug("policy_list probe failed", exc_info=True)
+        return None
+
+
+async def gather_metrics(ctx: PluginContext, sf) -> dict[str, Any]:
+    """DB → fixtures → compute_metrics. One read pass, newest mission only."""
+    from .models import Automation, Goal, NextStep, Proposal, ValueEntry
+
+    async with sf() as s:
+        m = (
+            await s.execute(
+                select(Mission).where(Mission.active)
+                .order_by(Mission.created_at.desc())
+            )
+        ).scalars().first()
+        if m is None:
+            return {"error": "no active mission — no funnel to measure"}
+        mid = m.id
+
+        def rows(model):  # noqa: ANN001
+            return select(model).where(model.mission_id == mid)
+
+        values = (await s.execute(rows(ValueEntry))).scalars().all()
+        cards = (await s.execute(rows(NextStep))).scalars().all()
+        # goals are mission-global rows (no mission_id column — pre-8.2 shape)
+        goals = (await s.execute(select(Goal))).scalars().all()
+        autos = (await s.execute(rows(Automation))).scalars().all()
+        props = (await s.execute(rows(Proposal))).scalars().all()
+        fixtures = {
+            "mission": {
+                "created_at": m.created_at,
+                "confirmed_at": m.confirmed_at,
+                "agent_phase": m.agent_phase,
+                "phase_entered_at": m.phase_entered_at,
+            },
+            "values": [{"delivered_at": v.delivered_at} for v in values],
+            "cards": [{"status": c.status} for c in cards],
+            "goals": [{"status": g.status} for g in goals],
+            "automations": [
+                {
+                    "hypercare_since": a.hypercare_since,
+                    "promoted_at": a.promoted_at,
+                    "overrides": a.overrides,
+                    "ignores": a.ignores,
+                }
+                for a in autos
+            ],
+            "proposals": [
+                {
+                    "status": p.status,
+                    "predicted_minutes": p.predicted_minutes,
+                    "actual_minutes": p.actual_minutes,
+                }
+                for p in props
+            ],
+        }
+    fixtures["boundaries"] = await _probe_boundaries(ctx)
+    return compute_metrics(**fixtures)
+
+
 def register_tools(ctx: PluginContext, store: HeartbeatStore) -> None:
     async def _report(
         streak: int, gaps_open: int, wobbles: int, morale: str, note: str = ""
@@ -278,4 +480,28 @@ def register_tools(ctx: PluginContext, store: HeartbeatStore) -> None:
             risk_level="low",
         ),
         _report,
+    )
+
+    async def _snapshot() -> dict[str, Any]:
+        return await gather_metrics(ctx, store._sf)
+
+    ctx.tool_registry.register(
+        PLUGIN_NAME,
+        ToolDef(
+            name="metrics_snapshot",
+            description=(
+                "Your server-computed adoption scoreboard: time to confirmed "
+                "mission, time to first win, card redirect rate, expectation "
+                "hit rate, boundary exceptions, hypercare exits, automation "
+                "overrides, proposal acceptance and prediction accuracy. "
+                "Read this BEFORE writing a weekly or monthly note and quote "
+                "its numbers verbatim — never compute or estimate a metric "
+                "yourself. A None value means 'no data yet'; say that "
+                "plainly rather than inventing a number."
+            ),
+            parameters={"type": "object", "properties": {}, "required": []},
+            policy="auto_approve",
+            risk_level="low",
+        ),
+        _snapshot,
     )

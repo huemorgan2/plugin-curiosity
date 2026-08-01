@@ -34,6 +34,7 @@ from sqlalchemy import select
 from luna_sdk import PluginContext, ToolDef
 
 from .models import Reflection
+from .prompts import WORK_WEEKLY_TITLE
 
 log = logging.getLogger("plugin-curiosity")
 
@@ -168,6 +169,7 @@ async def share(
     body: str,
     title: str = "Reflection",
     kind: str = "routine",
+    proposals=None,
 ) -> dict[str, Any]:
     """The share_thought core: guardrails, then post or queue."""
     body = (body or "").strip()
@@ -181,6 +183,14 @@ async def share(
                 "instead of sharing."
             )
         }
+    # 11.008/M7: the work-phase weekly note carries a bet, and a closed bet's
+    # verdict makes the note. Prose alone lost the p09 dojo twice ("No
+    # proposal this week; currently focusing on…"), so the flow lives in the
+    # tool layer: the store names what the note is missing.
+    if proposals is not None and kind == "review" and title == WORK_WEEKLY_TITLE:
+        gap = await proposals.weekly_note_gap(body)
+        if gap is not None:
+            return {"error": gap}
     # "review" (8.2): the weekly mission review — cadence is structural (the
     # weekly trigger), so like kickoff/dream it bypasses the routine daily cap.
     if kind not in ("routine", "kickoff", "dream", "review"):
@@ -215,7 +225,9 @@ async def share(
     return {"posted": True, "id": str(row["id"])}
 
 
-def register_tools(ctx: PluginContext, reflections: ReflectionLog) -> None:
+def register_tools(
+    ctx: PluginContext, reflections: ReflectionLog, proposals=None
+) -> None:
     async def _share(
         body: str, title: str = "Reflection", kind: str = "routine"
     ) -> dict[str, Any]:
@@ -223,7 +235,10 @@ def register_tools(ctx: PluginContext, reflections: ReflectionLog) -> None:
         # structural call sites, not the model's judgment
         if kind not in ("routine", "review"):
             kind = "routine"
-        return await share(ctx, reflections, body=body, title=title, kind=kind)
+        return await share(
+            ctx, reflections, body=body, title=title, kind=kind,
+            proposals=proposals,
+        )
 
     ctx.tool_registry.register(
         "plugin-curiosity",

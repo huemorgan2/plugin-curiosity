@@ -610,5 +610,7 @@ def test_weekly_review_forces_scores_shape_in_both_phases():
     assert "Weekly scores" in WEEKLY_SCORES_SHAPE
     # one target string, two branches — the shape must appear in each
     assert WEEKLY_REVIEW_TARGET.count(WEEKLY_SCORES_SHAPE) == 2
-    assert "Role wall" in WEEKLY_REVIEW_TARGET
+    # 0.19.0: the work branch scores criteria ON THE PAGE (the pane's role
+    # wall reads the page); the note itself stays five lines
+    assert "ON THE PAGE" in WEEKLY_REVIEW_TARGET
     assert "DRIFT AUDIT" in WEEKLY_REVIEW_TARGET

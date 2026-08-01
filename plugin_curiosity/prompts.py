@@ -485,3 +485,5 @@ PHASE_CHECK = (
 # Weekly report titles — exact strings (9D matches on m.title).
 SETUP_WEEKLY_TITLE = "Setup report — getting ready for the job"
 WORK_WEEKLY_TITLE = "Work report — week in review"
+# 11.008/M7: the monthly value ledger.
+MONTHLY_TITLE = "Monthly report — value delivered and next bets"

@@ -487,6 +487,50 @@ class Automation(Base):
     )
 
 
+class Proposal(Base):
+    """One improvement micro-proposal with its prediction (11.008/M7).
+
+    The weekly note carries at most ONE open proposal at a time (store-
+    enforced: a second `proposal_open` while one is open is refused with a
+    steering hint). `predicted` is REQUIRED — the expected payoff in owner
+    units ("saves you ~20 min/week"), stored BEFORE the work; closing an
+    accepted proposal requires `actual` in the same units, so every note
+    that proposed something later reports how the prediction did.
+    `status`: "proposed" → "accepted" | "declined"; accepted → "done" |
+    "dropped". `predicted_minutes`/`actual_minutes` are the optional numeric
+    halves — when both present, prediction accuracy is server-computed
+    (within ±30%). `value_ref` links the value-log receipt or the owner
+    quote the proposal is anchored to."""
+
+    __tablename__ = "curiosity_proposals"
+
+    id: Mapped[_uuid.UUID] = mapped_column(UUID(), primary_key=True, default=_uuid.uuid4)
+    mission_id: Mapped[_uuid.UUID] = mapped_column(UUID(), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    predicted: Mapped[str] = mapped_column(Text, nullable=False)
+    predicted_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    status: Mapped[str] = mapped_column(
+        String(16), default="proposed", nullable=False, index=True
+    )
+    actual: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    actual_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    decision_note: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    value_ref: Mapped[_uuid.UUID | None] = mapped_column(UUID(), nullable=True)
+    source: Mapped[str] = mapped_column(String(24), default="review", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    decided_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    closed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+
 class Flag(Base):
     """Tiny key/value state register (phase 8.1: `install_kickoff_sent`)."""
 
@@ -515,6 +559,7 @@ ALL_TABLES = (
     FeedbackNote.__table__,
     NextStep.__table__,
     Automation.__table__,
+    Proposal.__table__,
     Flag.__table__,
 )
 
