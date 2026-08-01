@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Missions — onboarding revamp mock</title>
+<style>
+  :root{
+    --bg:#0b0e14; --panel:#11151f; --panel-2:#161b28; --line:#232a3a;
+    --text:#e6e9f2; --dim:#8b93a7; --faint:#5b6275;
+    --violet:#8b5cf6; --violet-soft:#a78bfa;
+    --ok:#3ad29f; --amber:#f5a524; --red:#f4645f; --blue:#5eaefc;
+    --radius:12px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:var(--bg); color:var(--text);
+    font:15px/1.5 "Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased; padding:28px 20px 60px;
+  }
+  .wrap{max-width:860px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+
+  .eyebrow{font-size:11px;text-transform:uppercase;letter-spacing:.17em;color:var(--faint);font-weight:600}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:20px 22px}
+  h2{font-size:21px;font-weight:650;margin-top:6px;letter-spacing:-.01em}
+  .support{font-size:13px;color:var(--dim);margin-top:5px}
+  .mock-note{max-width:860px;margin:0 auto 14px;font-size:12px;color:var(--faint)}
+
+  /* ---- 1 · HERO — the one gradient -------------------------------------- */
+  .hero{
+    border-radius:var(--radius); padding:26px 24px 22px; position:relative; overflow:hidden;
+    background:
+      radial-gradient(120% 160% at 8% -20%, rgba(139,92,246,.32), transparent 55%),
+      radial-gradient(120% 160% at 95% 120%, rgba(94,174,252,.14), transparent 55%),
+      #10131d;
+    border:1px solid #2a3047;
+  }
+  .hero .eyebrow{color:var(--violet-soft)}
+  .hero h1{font-size:24px;font-weight:700;line-height:1.3;margin-top:8px;max-width:44ch}
+  .confirmed{display:inline-flex;align-items:center;gap:7px;margin-top:12px;
+    font-size:12px;color:var(--ok);border:1px solid rgba(58,210,159,.4);
+    border-radius:999px;padding:3px 12px}
+  .confirmed b{font-weight:600}
+  .hero .said{margin-top:12px;font-size:13px;color:var(--dim)}
+  .hero .said i{color:var(--faint);font-style:normal}
+  details.howwegothere{margin-top:10px;font-size:13px;color:var(--dim)}
+  details.howwegothere summary{cursor:pointer;color:var(--faint);font-size:12px;list-style:none}
+  details.howwegothere summary::before{content:"▸ ";color:var(--faint)}
+  details[open].howwegothere summary::before{content:"▾ "}
+  .convo{margin-top:10px;display:flex;flex-direction:column;gap:8px}
+  .convo div{border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:13px;max-width:60ch}
+  .convo .you{align-self:flex-end;background:var(--panel-2)}
+  .convo .luna{color:var(--dim)}
+
+  /* ---- 2 · JOURNEY ------------------------------------------------------- */
+  .journey{display:flex;align-items:flex-start;margin-top:16px}
+  .step{flex:1;text-align:center;position:relative}
+  .step::before{ /* rail segment */
+    content:"";position:absolute;top:11px;left:-50%;width:100%;height:2px;background:var(--line);
+  }
+  .step:first-child::before{display:none}
+  .step.done::before{background:rgba(58,210,159,.5)}
+  .step.now::before{background:rgba(58,210,159,.5)}
+  .sdot{width:22px;height:22px;border-radius:50%;margin:0 auto;position:relative;z-index:1;
+    display:flex;align-items:center;justify-content:center;font-size:12px;
+    background:var(--panel-2);border:1px solid var(--line);color:var(--faint)}
+  .done .sdot{background:rgba(58,210,159,.12);border-color:rgba(58,210,159,.55);color:var(--ok)}
+  .now .sdot{background:var(--violet);border-color:var(--violet);color:#fff;box-shadow:0 0 0 5px rgba(139,92,246,.18)}
+  .slabel{font-size:12px;margin-top:8px;color:var(--dim);font-weight:600}
+  .done .slabel{color:var(--dim)}
+  .now .slabel{color:var(--text)}
+  .step .swhen{font-size:11px;color:var(--faint);margin-top:2px}
+  .now-question{margin-top:16px;border-top:1px solid var(--line);padding-top:13px;
+    font-size:13.5px;color:var(--dim)}
+  .now-question b{color:var(--text);font-weight:600}
+
+  /* ---- 3 · NOW / NEXT ---------------------------------------------------- */
+  .now-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}
+  @media(max-width:700px){.now-grid{grid-template-columns:1fr}}
+  .stepcard{background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:15px 16px}
+  .stepcard .tag{font-size:11px;letter-spacing:.14em;text-transform:uppercase;font-weight:600}
+  .stepcard.running .tag{color:var(--ok)}
+  .stepcard.queued .tag{color:var(--faint)}
+  .stepcard h3{font-size:15.5px;font-weight:650;margin-top:6px;line-height:1.35}
+  .rows{margin-top:10px;display:flex;flex-direction:column;gap:5px;font-size:13px}
+  .rows .r{display:flex;gap:8px}
+  .rows .k{color:var(--faint);min-width:74px;flex:none}
+  .rows .v{color:var(--dim)}
+  .rows .v b{color:var(--text);font-weight:600}
+  .live{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--ok);
+    margin-right:6px;animation:pulse 1.6s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  .actions{margin-top:12px;display:flex;gap:8px}
+  .btn{font-size:12.5px;font-weight:600;border-radius:999px;padding:5px 16px;cursor:pointer;
+    border:1px solid var(--line);background:transparent;color:var(--dim)}
+  .btn.primary{background:var(--violet);border-color:var(--violet);color:#fff}
+  .queued .hint{margin-top:11px;font-size:12px;color:var(--faint)}
+
+  /* ---- 4 · WAITING ON YOU ------------------------------------------------ */
+  .waits{margin-top:12px;display:flex;flex-direction:column;gap:9px}
+  .wait{display:flex;align-items:baseline;gap:10px;font-size:13.5px}
+  .wait .dot{width:8px;height:8px;border-radius:50%;flex:none;position:relative;top:0;
+    border:2px solid var(--amber);background:transparent}
+  .wait b{font-weight:600}
+  .wait .unlock{color:var(--dim)}
+  .wait .unlock i{font-style:normal;color:var(--violet-soft)}
+  .keeps{margin-top:12px;font-size:12.5px;color:var(--ok)}
+
+  /* ---- 5 · WHAT I RUN FOR YOU -------------------------------------------- */
+  .sys{margin-top:12px;display:flex;flex-direction:column}
+  .sys-row{display:grid;grid-template-columns:1fr auto;gap:12px;padding:9px 0;
+    border-top:1px solid var(--line);align-items:baseline}
+  .sys-row:first-child{border-top:none}
+  .sys .sname{font-size:13.5px}
+  .sys .sname b{font-weight:600}
+  .sys .ssub{color:var(--faint);font-size:12.5px}
+  .state{font-size:11px;font-weight:600;border-radius:999px;padding:2px 10px;white-space:nowrap}
+  .state.run{color:var(--ok);border:1px solid rgba(58,210,159,.4)}
+  .state.watch{color:var(--blue);border:1px solid rgba(94,174,252,.4)}
+  .state.ask{color:var(--amber);border:1px solid rgba(245,165,36,.45)}
+
+  /* ---- MY RULES strip ----------------------------------------------------- */
+  .rules{display:flex;justify-content:space-between;gap:14px;align-items:baseline;flex-wrap:wrap}
+  .rules .rlist{font-size:13px;color:var(--dim)}
+  .rules .rlist i{font-style:normal;color:var(--faint);padding:0 6px}
+  .rules .rcount{font-size:12.5px;color:var(--ok);white-space:nowrap}
+
+  /* ---- 6 · WHAT HAPPENS WHEN --------------------------------------------- */
+  .tl{margin-top:14px;display:flex;flex-direction:column}
+  .tl-row{display:grid;grid-template-columns:150px 1fr;gap:14px;padding:9px 0;
+    border-top:1px solid var(--line);align-items:baseline}
+  .tl-row:first-child{border-top:none}
+  .when{font-size:12.5px;font-weight:600;color:var(--violet-soft)}
+  .when.clock{color:var(--blue)}
+  .when.you{color:var(--amber)}
+  .what{font-size:13.5px}
+  .what b{font-weight:600}
+  .what .sub{color:var(--faint);font-size:12.5px}
+  .tl-row.dimmed .what, .tl-row.dimmed .when{opacity:.55}
+
+  /* ---- 6 · WINS ---------------------------------------------------------- */
+  .wins{margin-top:12px;display:flex;flex-direction:column;gap:2px}
+  .win{display:flex;gap:10px;align-items:baseline;font-size:13.5px;padding:7px 0}
+  .win .wdot{width:7px;height:7px;border-radius:50%;background:var(--ok);flex:none}
+  .win b{font-weight:600}
+  .win .wsub{color:var(--faint);font-size:12.5px}
+  .win a{color:var(--violet-soft);text-decoration:none;font-size:12.5px;white-space:nowrap}
+  .foot{max-width:860px;margin:18px auto 0;font-size:12px;color:var(--faint);
+    display:flex;justify-content:space-between}
+</style>
+</head>
+<body>
+
+<p class="mock-note">MOCK — phase11 onboarding revamp · fake data · growth-mission example · step 5 of the adoption arc</p>
+
+<div class="wrap">
+
+  <!-- 1 · MISSION, reflected back — the one gradient -->
+  <section class="hero">
+    <div class="eyebrow">Your mission — in my words</div>
+    <h1>Grow paying customers by fixing the funnel: the ads you buy, the pages they land on, and the events that tell us what works.</h1>
+    <span class="confirmed">✓ <span>You confirmed this is right &nbsp;<b>· Jul 28</b></span></span>
+    <div class="said">You said: <i>“optimize the whole funnel for our products…”</i></div>
+    <details class="howwegothere">
+      <summary>How we got here — the 3 questions that shaped it</summary>
+      <div class="convo">
+        <div class="luna">Which matters more this quarter — more signups, or more of the signups you already get turning into payers?</div>
+        <div class="you">Honestly — conversion. Traffic is okay.</div>
+        <div class="luna">Do you know which user event actually predicts payment today?</div>
+        <div class="you">No idea. We track pageviews mostly.</div>
+        <div class="luna">Then that's where I'd start — it changes what every other number means.</div>
+      </div>
+    </details>
+  </section>
+
+  <!-- 2 · WHERE WE ARE — the adoption journey -->
+  <section class="panel">
+    <div class="eyebrow">Where we are</div>
+    <h2>Earning the setup — 2 of 4 accesses granted</h2>
+    <p class="support">Each step answers one question you're entitled to ask. We only move when you're ready.</p>
+    <div class="journey">
+      <div class="step done"><div class="sdot">✓</div><div class="slabel">Hear</div><div class="swhen">Jul 28</div></div>
+      <div class="step done"><div class="sdot">✓</div><div class="slabel">Reflect</div><div class="swhen">Jul 28</div></div>
+      <div class="step done"><div class="sdot">✓</div><div class="slabel">Prove</div><div class="swhen">Jul 28 · 9 min</div></div>
+      <div class="step done"><div class="sdot">✓</div><div class="slabel">Agree</div><div class="swhen">Jul 29</div></div>
+      <div class="step now"><div class="sdot">5</div><div class="slabel">Earn</div><div class="swhen">now</div></div>
+      <div class="step"><div class="sdot">6</div><div class="slabel">Own</div><div class="swhen">your call</div></div>
+    </div>
+    <div class="now-question"><b>This step answers:</b> “how much rope do I give her?” — every access I ask for rides a win you already received.</div>
+  </section>
+
+  <!-- 3 · NOW & NEXT — never run unannounced -->
+  <section class="panel">
+    <div class="eyebrow">Now &amp; next</div>
+    <h2>You always know what I'm doing — and what it buys you</h2>
+    <div class="now-grid">
+      <div class="stepcard running">
+        <div class="tag"><span class="live"></span>Running now</div>
+        <h3>Auditing your two live landing pages against what converts in your category</h3>
+        <div class="rows">
+          <div class="r"><span class="k">Why</span><span class="v">You confirmed conversion beats traffic this quarter</span></div>
+          <div class="r"><span class="k">You'll get</span><span class="v"><b>Ranked fix list</b> in the wiki + 5-line summary in chat</span></div>
+          <div class="r"><span class="k">Costs about</span><span class="v">~4 min · a few cents · started 2 min ago</span></div>
+        </div>
+      </div>
+      <div class="stepcard queued">
+        <div class="tag">Up next — your call</div>
+        <h3>Map which tracked event best predicts payment, from 90 days of your data</h3>
+        <div class="rows">
+          <div class="r"><span class="k">Why</span><span class="v">You said “no idea” — it changes what every number means</span></div>
+          <div class="r"><span class="k">You'll get</span><span class="v"><b>“Which events matter”</b> wiki page with evidence</span></div>
+          <div class="r"><span class="k">Costs about</span><span class="v">~10 min · read-only on your analytics</span></div>
+        </div>
+        <div class="actions"><button class="btn primary">Go ahead</button><button class="btn">Change it</button></div>
+        <div class="hint">No answer? I'll start in 2 h and leave a note — you can stop me anytime.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4 · WAITING ON YOU — blockers named by their unlock -->
+  <section class="panel">
+    <div class="eyebrow">Waiting on you</div>
+    <h2>Two things only you can unlock</h2>
+    <div class="waits">
+      <div class="wait"><span class="dot"></span><span><b>Google Ads access</b> (read-only) — <span class="unlock">unlocks <i>where your budget leaks</i>. 5 min of your time, whenever suits you.</span></span></div>
+      <div class="wait"><span class="dot"></span><span><b>One answer:</b> is the “company size” field used by sales? — <span class="unlock">unlocks <i>the checkout-form fix</i> you approved.</span></span></div>
+    </div>
+    <p class="keeps">Nothing is stuck — everything that doesn't need these keeps moving.</p>
+  </section>
+
+  <!-- 5 · WHAT I RUN FOR YOU — the systems catalog (appears with the first automation) -->
+  <section class="panel">
+    <div class="eyebrow">What I run for you</div>
+    <h2>2 systems working · 1 waiting for your OK</h2>
+    <div class="sys">
+      <div class="sys-row">
+        <span class="sname"><b>Weekly funnel digest</b> — <span class="ssub">every Friday 9:00 · 4 sent, 4 on time</span></span>
+        <span class="state run">Running</span>
+      </div>
+      <div class="sys-row">
+        <span class="sname"><b>Abandoned-checkout reminder emails</b> — <span class="ssub">new: I double-check every send · 11 sent, 0 corrections</span></span>
+        <span class="state watch">Extra watch</span>
+      </div>
+      <div class="sys-row">
+        <span class="sname"><b>Inquiry reply drafts</b> — <span class="ssub">10 real inquiries + my drafts are ready for your review</span></span>
+        <span class="state ask">Your OK needed</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6 · WHAT HAPPENS WHEN — expectations in honest units -->
+  <section class="panel">
+    <div class="eyebrow">What happens when</div>
+    <h2>Promises in honest units — my minutes, your unlocks, real dates only when real</h2>
+    <div class="tl">
+      <div class="tl-row"><span class="when clock">In ~4 min</span><span class="what"><b>Landing-page fix list</b> lands in chat</span></div>
+      <div class="tl-row"><span class="when you">After your go-ahead</span><span class="what"><b>Payment-predictor analysis</b> — ~10 min of my work <span class="sub">· card above</span></span></div>
+      <div class="tl-row"><span class="when you">Once Ads access lands</span><span class="what"><b>Budget-leak report</b> — ~20 min after you grant it <span class="sub">· not a “3-day” task; the wait is the key, not the work</span></span></div>
+      <div class="tl-row"><span class="when clock">Friday, weekly</span><span class="what"><b>One digest</b>: what I did, what it changed, what I'd do next <span class="sub">· the only scheduled interruption</span></span></div>
+      <div class="tl-row dimmed"><span class="when">When you say so</span><span class="what"><b>I start drafting changes</b> for your approval — step 6, never before you choose it</span></div>
+    </div>
+  </section>
+
+  <!-- 7 · WHAT YOU GOT SO FAR -->
+  <section class="panel">
+    <div class="eyebrow">What you got so far</div>
+    <h2>3 wins · 23 minutes of my work · you spent 6 minutes</h2>
+    <div class="wins">
+      <div class="win"><span class="wdot"></span><span><b>Funnel map</b> of your actual funnel — <span class="wsub">found the mobile step-3 drop</span></span><a href="#">open ↗</a></div>
+      <div class="win"><span class="wdot"></span><span><b>Keyword mismatch</b> — high-intent ads land on your generic homepage — <span class="wsub">est. ~30% wasted clicks</span></span><a href="#">open ↗</a></div>
+      <div class="win"><span class="wdot"></span><span><b>Mission brief</b> you confirmed — <span class="wsub">the plan we're on now</span></span><a href="#">open ↗</a></div>
+    </div>
+  </section>
+
+  <!-- MY RULES — slim strip, appears once boundaries are set at Agree -->
+  <section class="panel rules">
+    <span class="rlist"><span class="eyebrow" style="display:block;margin-bottom:6px">My rules</span>
+      I contact your customers only 9:00–19:00 their time<i>·</i>I never spend over $50 without asking<i>·</i>Phone calls always need your OK
+    </span>
+    <span class="rcount">212 actions checked · 0 exceptions ✓</span>
+  </section>
+
+</div>
+
+<footer class="foot"><span>mock — plugin-curiosity onboarding revamp · phase11</span><span>machinery lives in the Operational tab, unchanged</span></footer>
+
+</body>
+</html>
