@@ -7,14 +7,8 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <!-- 0.9.5: one pane, two tabs. Tab 2 embeds ui/noc/ (the operations wall).
-       0.16.0 (11.004/M4): tab 1 is the journey, not a dashboard — the
-       machinery (abilities, gap board, heartbeats, JD) lives on tab 2. -->
-  <nav class="tabs" role="tablist">
-    <button id="tab-missions" class="tab active" role="tab" aria-selected="true">Missions</button>
-    <button id="tab-ops" class="tab" role="tab" aria-selected="false">Operational dashboard</button>
-  </nav>
-
+  <!-- 0.21.0: one pane, one view — the journey. The ops-dashboard tab
+       (ex-NOC) was removed: too much machinery for owners. -->
   <div id="view-missions">
   <!-- First paint: visible until the first overview answer replaces it. -->
   <div id="loading" class="loading">
@@ -121,10 +115,6 @@
     </footer>
   </div>
   </div><!-- /view-missions -->
-
-  <div id="view-ops" class="view-ops hidden">
-    <iframe id="ops-frame" title="Operational dashboard"></iframe>
-  </div>
 
   <div id="toast" class="toast hidden"></div>
   <script src="app.js"></script>

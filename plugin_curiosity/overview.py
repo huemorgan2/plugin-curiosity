@@ -78,8 +78,6 @@ WIKI_SHELF = (
 # STAGE_LABELS moved to scopes.py in 0.9.2 (the charter mirror needs the
 # words too) and is re-exported via the import above.
 
-SCORE_STATUSES = ("on-track", "at-risk", "met", "missed")
-
 
 def _utcnow() -> datetime:
     return datetime.now(UTC)
@@ -93,81 +91,6 @@ def _parse_dt(iso: str | None) -> datetime | None:
     except ValueError:
         return None
     return dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt
-
-
-# --- NOC wall parsers (the structure prompts.SUCCESS_TABLE_SHAPE forces) ----
-
-
-def parse_criteria_table(body: str) -> list[dict[str, str]]:
-    """Rows of the `| criterion | measure | target | horizon |` table."""
-    rows: list[dict[str, str]] = []
-    in_table = False
-    for line in (body or "").splitlines():
-        line = line.strip()
-        if not line.startswith("|"):
-            in_table = False
-            continue
-        cells = [c.strip() for c in line.strip("|").split("|")]
-        if len(cells) < 4:
-            continue
-        head = [c.lower() for c in cells[:4]]
-        if head == ["criterion", "measure", "target", "horizon"]:
-            in_table = True
-            continue
-        if set(cells[0]) <= {"-", ":", " "}:  # separator row
-            continue
-        if in_table:
-            rows.append(
-                {
-                    "criterion": cells[0],
-                    "measure": cells[1],
-                    "target": cells[2],
-                    "horizon": cells[3],
-                }
-            )
-    return rows
-
-
-_SCORE_LINE = re.compile(r"^[-*]\s+(.+)$")
-
-
-def _score_from_text(text: str) -> dict[str, str] | None:
-    """One `<date> | <criterion> | <status> | <evidence>` score, or None when
-    the line doesn't parse — shared by the bespoke body parser and the
-    provider get_section item path."""
-    parts = [p.strip() for p in (text or "").split("|")]
-    if len(parts) < 3:
-        return None
-    status = parts[2].lower()
-    if status not in SCORE_STATUSES:
-        return None
-    return {
-        "date": parts[0],
-        "criterion": parts[1],
-        "status": status,
-        "evidence": parts[3] if len(parts) > 3 else "",
-    }
-
-
-def parse_weekly_scores(body: str) -> list[dict[str, str]]:
-    """`- <date> | <criterion> | <status> | <evidence>` lines under the
-    '## Weekly scores' heading. Newest last (append-only by contract)."""
-    scores: list[dict[str, str]] = []
-    in_section = False
-    for line in (body or "").splitlines():
-        stripped = line.strip()
-        if stripped.startswith("#"):
-            in_section = "weekly scores" in stripped.lstrip("# ").lower()
-            continue
-        if not in_section:
-            continue
-        m = _SCORE_LINE.match(stripped)
-        if not m:
-            continue
-        score = _score_from_text(m.group(1))
-        if score is not None:
-            scores.append(score)
-    return scores
 
 
 # --- job-description parser (the structure prompts.JOB_DESCRIPTION_SHAPE ----
@@ -222,27 +145,6 @@ def parse_job_description(body: str) -> dict[str, Any]:
     if not shape_ok:
         out["raw"] = body or ""
     return out
-
-
-def build_noc(criteria: list[dict], scores: list[dict]) -> dict[str, Any]:
-    """Work-phase role wall: one tile per criterion (latest score wins),
-    incident strip (at-risk/missed, newest first), per-criterion uptime
-    (share of scored weeks that were on-track or met)."""
-    tiles = []
-    for c in criteria:
-        own = [s for s in scores if s["criterion"].lower() == c["criterion"].lower()]
-        latest = own[-1] if own else None
-        good = sum(1 for s in own if s["status"] in ("on-track", "met"))
-        tiles.append(
-            {
-                **c,
-                "latest": latest,
-                "scored_weeks": len(own),
-                "uptime_pct": round(100 * good / len(own)) if own else None,
-            }
-        )
-    incidents = [s for s in reversed(scores) if s["status"] in ("at-risk", "missed")]
-    return {"tiles": tiles, "incidents": incidents[:10], "scores_total": len(scores)}
 
 
 # --- best-effort cross-plugin reads -----------------------------------------
@@ -327,53 +229,6 @@ async def read_job_description(
         except Exception:  # noqa: BLE001
             log.debug("provider JD extraction failed; using bespoke parser", exc_info=True)
     return parse_job_description(await wiki_page_body(ctx, "job-description", wk))
-
-
-async def read_noc_inputs(
-    ctx: PluginContext, wk: dict[str, Any] | None = None
-) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
-    """(criteria, scores) off [[success-criteria]]: provider get_table /
-    get_section when the wiki plugin has them, the bespoke body parsers
-    otherwise. Either half can fall back independently."""
-    wk = wk or {}
-    wiki = _wiki_provider(ctx)
-    criteria: list[dict[str, str]] | None = None
-    scores: list[dict[str, str]] | None = None
-    if wiki is not None and callable(getattr(wiki, "get_table", None)):
-        try:
-            table = await wiki.get_table("success-criteria", **wk)
-            cols = [c.strip().lower() for c in (table or {}).get("columns") or []]
-            if table and cols[:4] == ["criterion", "measure", "target", "horizon"]:
-                criteria = [
-                    {
-                        "criterion": r[0],
-                        "measure": r[1],
-                        "target": r[2],
-                        "horizon": r[3],
-                    }
-                    for r in table.get("rows") or []
-                    if len(r) >= 4
-                ]
-        except Exception:  # noqa: BLE001
-            criteria = None
-    if wiki is not None and callable(getattr(wiki, "get_section", None)):
-        try:
-            sec = await wiki.get_section("success-criteria", "weekly scores", **wk)
-            if sec is not None:
-                scores = [
-                    s
-                    for s in (_score_from_text(item) for item in sec.get("items") or [])
-                    if s is not None
-                ]
-        except Exception:  # noqa: BLE001
-            scores = None
-    if criteria is None or scores is None:
-        body = await wiki_page_body(ctx, "success-criteria", wk)
-        if criteria is None:
-            criteria = parse_criteria_table(body)
-        if scores is None:
-            scores = parse_weekly_scores(body)
-    return criteria, scores
 
 
 async def trigger_snapshot(ctx: PluginContext) -> list[dict[str, Any]]:
@@ -746,12 +601,6 @@ async def build_overview(
     triggers = await trigger_snapshot(ctx)
     shelf = await wiki_shelf(ctx, wk)
 
-    noc = None
-    if agent_phase == "work" or setup_stage in ("S2", "S3", "S4", "S5"):
-        criteria, scores = await read_noc_inputs(ctx, wk)
-        if criteria or scores:
-            noc = build_noc(criteria, scores)
-
     gap_board = []
     for kind in SCOPE_KINDS:
         own = [sc for sc in scopes_list if sc["kind"] == kind]
@@ -905,7 +754,6 @@ async def build_overview(
         "needs_from_you": needs,
         "next_up": _what_next(agent_phase, setup_stage, triggers),
         "wiki_shelf": shelf,
-        "noc": noc,
         "activity": _activity(
             plan_changes, value_log, heartbeats, goals_list, loops_all,
             next_steps=next_steps_recent,

@@ -351,49 +351,6 @@ async def test_read_job_description_partial_provider_falls_back(store, sf):
 
 
 @pytest.mark.asyncio
-async def test_read_noc_inputs_provider_table_and_scores(store, sf):
-    from plugin_curiosity.overview import read_noc_inputs
-
-    wiki = MultiWikiProvider()
-    ctx = _ctx(store, sf, wiki=wiki)
-    wiki.tables[("m-wiki", "success-criteria")] = {
-        "header": "", "columns": ["Criterion", "Measure", "Target", "Horizon"],
-        "rows": [["signups", "weekly count", "500", "30 days"]]}
-    wiki.sections[("m-wiki", "success-criteria", "weekly scores")] = {
-        "header": "Weekly scores", "text": "",
-        "items": ["2026-07-07 | signups | on-track | 320 and climbing",
-                  "not a score line"],
-        "numbered": False}
-    criteria, scores = await read_noc_inputs(ctx, {"wiki": "m-wiki"})
-    assert criteria == [{"criterion": "signups", "measure": "weekly count",
-                         "target": "500", "horizon": "30 days"}]
-    assert scores == [{"date": "2026-07-07", "criterion": "signups",
-                       "status": "on-track", "evidence": "320 and climbing"}]
-
-
-@pytest.mark.asyncio
-async def test_read_noc_inputs_halves_fall_back_independently(store, sf):
-    from plugin_curiosity.overview import read_noc_inputs
-
-    wiki = MultiWikiProvider()
-    ctx = _ctx(store, sf, wiki=wiki)
-    # provider has a MALFORMED table (wrong columns) and no scores section →
-    # both halves come from the body parsers
-    wiki.tables[("m-wiki", "success-criteria")] = {
-        "header": "", "columns": ["what", "how"], "rows": [["x", "y"]]}
-    wiki.pages[("m-wiki", "success-criteria")] = {
-        "slug": "success-criteria", "title": "SC", "body": (
-            "| Criterion | Measure | Target | Horizon |\n"
-            "| --- | --- | --- | --- |\n"
-            "| signups | weekly count | 500 | 30 days |\n"
-            "## Weekly scores\n"
-            "- 2026-07-07 | signups | met | done\n")}
-    criteria, scores = await read_noc_inputs(ctx, {"wiki": "m-wiki"})
-    assert criteria and criteria[0]["criterion"] == "signups"
-    assert scores and scores[0]["status"] == "met"
-
-
-@pytest.mark.asyncio
 async def test_read_job_description_old_wiki_uses_body_parser(store, sf):
     from plugin_curiosity.overview import JD_SECTIONS, read_job_description
 

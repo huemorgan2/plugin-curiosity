@@ -86,7 +86,7 @@ def test_manifest_hard_dependencies_declared():
 
 def test_manifest_sidebar_section():
     secs = CuriosityPlugin.manifest.sidebar_sections
-    assert len(secs) == 1  # 0.9.5: one pane; the ops wall is a tab inside it
+    assert len(secs) == 1  # 0.9.5: one pane; 0.21.0: one view — the journey
     assert secs[0].id == "missions"
     # 0.9.13: owner-facing label is the plugin's own name, placed right under
     # Chat (10), ahead of Playbooks (25)
@@ -410,60 +410,6 @@ def test_compute_sentiment_bands(latest, previous, blocked, band):
     from plugin_curiosity.telemetry import compute_sentiment
 
     assert compute_sentiment(latest, previous, blocked_on_owner=blocked) == band
-
-
-# ---- NOC parsers -----------------------------------------------------------------
-
-
-_CRITERIA_BODY = """Intro prose.
-
-| criterion | measure | target | horizon |
-| --- | --- | --- | --- |
-| Coverage | pages with citations | 90% | end of Q3 |
-| Freshness | median page age | < 7 days | weekly |
-
-## Weekly scores
-
-- 2026-07-01 | Coverage | on-track | 61% and climbing, see [[value-log]]
-- 2026-07-01 | Freshness | at-risk | median 11d after vacation
-- 2026-07-08 | Coverage | met | 92%, see [[value-log]]
-- 2026-07-08 | Freshness | on-track | median 6d
-- malformed line without pipes
-- 2026-07-08 | Ghost | bogus-status | ignored
-"""
-
-
-def test_parse_criteria_table():
-    from plugin_curiosity.overview import parse_criteria_table
-
-    rows = parse_criteria_table(_CRITERIA_BODY)
-    assert [r["criterion"] for r in rows] == ["Coverage", "Freshness"]
-    assert rows[0]["target"] == "90%"
-    assert rows[1]["horizon"] == "weekly"
-    assert parse_criteria_table("no table here") == []
-
-
-def test_parse_weekly_scores():
-    from plugin_curiosity.overview import parse_weekly_scores
-
-    scores = parse_weekly_scores(_CRITERIA_BODY)
-    assert len(scores) == 4  # malformed + bogus-status skipped
-    assert scores[0] == {
-        "date": "2026-07-01", "criterion": "Coverage", "status": "on-track",
-        "evidence": "61% and climbing, see [[value-log]]",
-    }
-
-
-def test_build_noc_tiles_and_incidents():
-    from plugin_curiosity.overview import build_noc, parse_criteria_table, parse_weekly_scores
-
-    noc = build_noc(parse_criteria_table(_CRITERIA_BODY), parse_weekly_scores(_CRITERIA_BODY))
-    cov = next(t for t in noc["tiles"] if t["criterion"] == "Coverage")
-    assert cov["latest"]["status"] == "met"
-    assert cov["uptime_pct"] == 100
-    fresh = next(t for t in noc["tiles"] if t["criterion"] == "Freshness")
-    assert fresh["uptime_pct"] == 50
-    assert [i["status"] for i in noc["incidents"]] == ["at-risk"]
 
 
 # ---- overview aggregation ---------------------------------------------------------

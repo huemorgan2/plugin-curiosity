@@ -481,7 +481,7 @@ if "prompt_overrides" in getattr(PluginManifest, "model_fields", {}):
 class CuriosityPlugin(LunaPlugin):
     manifest = PluginManifest(
         name="plugin-curiosity",
-        version="0.20.0",
+        version="0.21.0",
         description=(
             "Mission-driven curiosity: research, wiki-building, nightly dreams, "
             "self-set goals, weekly mission reviews, proactive reflections, and "
@@ -494,10 +494,9 @@ class CuriosityPlugin(LunaPlugin):
         depends_on=["plugin-wiki", "plugin-scheduler"],
         db_tables=[t.name for t in ALL_TABLES],
         routes_module="routes",
-        # 0.9.5: ONE sidebar entry. The operations wall (ex-NOC) lives inside
-        # the Missions pane as its second tab ("Operational dashboard"),
-        # embedded from ui/noc/ — the noc/ directory keeps its URL so old
-        # deep links and the embed share one document.
+        # 0.9.5: ONE sidebar entry. 0.21.0: the Operational dashboard tab
+        # (ex-NOC, ui/noc/) was removed — too much machinery for owners; the
+        # pane is the journey view alone.
         # 0.9.13: labeled "Curiosity", right under Chat (10) and ahead of
         # Playbooks (25) — the mission is the agent's core.
         sidebar_sections=(
@@ -904,7 +903,13 @@ class CuriosityPlugin(LunaPlugin):
         else:
             mission, state = await self._store.get(), None
         phase = state["agent_phase"] if (mission is not None and state) else None
-        sections = [prompt_fragment(mission, phase, slot_mode=_CLAIMS_SUPPORTED)]
+        # phase13: while missionless the fragment is draft-aware — with a
+        # captured draft the capture/ask instructions must not re-inject
+        # (they re-asked the question round in production).
+        draft = await self._store.draft_get() if mission is None else None
+        sections = [
+            prompt_fragment(mission, phase, slot_mode=_CLAIMS_SUPPORTED, draft=draft)
+        ]
         # 0.10.0: with the goal engine flipped, say so — the agent must know
         # its goals live in goal-seek (stages/policies, the Goals pane) and
         # that goal_set still adds mission membership on top of the open.

@@ -311,10 +311,11 @@ async def test_overview_v2_ladder_jd_and_pivots(sf, ctx, store):
     assert any(n["kind"] == "pivot" for n in o["needs_from_you"])
     plan_events = [e for e in o["activity"] if e["kind"] == "plan"]
     assert any(e["text"].startswith("ROLE PIVOT — ") for e in plan_events)
-    # 9.002 fields all preserved
+    # 9.002 fields all preserved (0.21.0: "noc" left with the ops dashboard)
     for key in ("gap_board", "loops", "value_log", "heartbeats", "pace",
-                "sentiment", "next_up", "wiki_shelf", "noc", "activity"):
+                "sentiment", "next_up", "wiki_shelf", "activity"):
         assert key in o
+    assert "noc" not in o
 
 
 @pytest.mark.asyncio

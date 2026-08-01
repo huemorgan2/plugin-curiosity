@@ -1,10 +1,10 @@
-"""10.002 — the panes: Missions rebuilt to the four-section grammar, NOC
-split out behind its own sidebar section (SidebarSection.path, luna 031).
+"""10.002 — the Missions pane rebuilt to the journey grammar.
 
-The server side stays thin: one manifest entry, one route. The tests that
-matter most here are the UX-grammar invariants the plan makes contractual:
-zero S\\d jargon on the owner-facing pane, tooltips only behind (i)
-affordances, the four sections in order.
+0.21.0: the Operational dashboard (ex-NOC, ui/noc/) was removed entirely —
+too much machinery for owners. The pane is one view: the journey. These
+tests keep the UX-grammar invariants contractual (zero S\\d jargon, no
+tooltip layer, the eight sections in order) and now also pin the absence
+of the ops tab and its assets.
 """
 
 from __future__ import annotations
@@ -21,29 +21,30 @@ from plugin_curiosity import CuriosityPlugin
 UI = Path(__file__).parent.parent / "plugin_curiosity" / "ui"
 
 
-# ---- manifest: one pane, two tabs (0.9.5) ------------------------------------
+# ---- manifest: one pane, one view (0.21.0) -----------------------------------
 
 
-def test_manifest_advertises_single_pane_with_ops_tab():
+def test_manifest_advertises_single_pane_without_ops_tab():
     secs = CuriosityPlugin.manifest.sidebar_sections
     assert [s.id for s in secs] == ["missions"]
     assert getattr(secs[0], "path", "ui/") == "ui/"
-    # the ops wall is a tab inside the Missions pane, embedded from ui/noc/
+    # 0.21.0: no tabs, no embedded ops document
     index = (UI / "index.html").read_text()
-    assert "Operational dashboard" in index
-    assert 'id="ops-frame"' in index
+    assert "Operational dashboard" not in index
+    assert 'id="ops-frame"' not in index
+    assert "<nav" not in index
     app = (UI / "app.js").read_text()
-    assert "noc/?v=" in app  # tab 2 lazy-loads the embedded document
+    assert "noc/?v=" not in app
+    assert "setTab" not in app
 
 
-def test_noc_assets_ship_with_the_package():
-    for name in ("index.html", "app.js", "style.css"):
-        assert (UI / "noc" / name).exists(), f"ui/noc/{name} missing"
+def test_noc_assets_are_gone():
+    assert not (UI / "noc").exists(), "ui/noc/ was removed in 0.21.0"
     import tomllib
 
     with open(Path(__file__).parent.parent / "pyproject.toml", "rb") as f:
         py = tomllib.load(f)
-    assert "ui/noc/*" in py["tool"]["setuptools"]["package-data"]["plugin_curiosity"]
+    assert "ui/noc/*" not in py["tool"]["setuptools"]["package-data"]["plugin_curiosity"]
 
 
 def test_three_version_stamps_agree():
@@ -68,20 +69,11 @@ def test_missions_pane_has_zero_stage_jargon():
         assert not hits, f"ui/{name} leaks stage codes: {hits}"
 
 
-def test_tooltips_only_behind_help_affordances():
-    """data-tip may exist only on (i) .help elements. 0.16.0: the Missions
-    journey page has no tooltip layer at all — plain sentences carry the
-    explanations; only the ops pane keeps (i) affordances."""
-    for rel in ("index.html", "noc/index.html"):
-        html = (UI / rel).read_text()
-        for m in re.finditer(r"<[^>]*data-tip=", html):
-            assert 'class="help"' in m.group(0) or "help" in m.group(0), (
-                f"{rel}: data-tip outside a .help affordance: {m.group(0)[:80]}"
-            )
+def test_no_tooltip_layer_on_the_journey_pane():
+    """0.16.0: the journey page has no tooltip layer at all — plain
+    sentences carry the explanations."""
     assert "data-tip" not in (UI / "index.html").read_text()
     assert "data-tip" not in (UI / "app.js").read_text()
-    # the ops pane's hover handler must anchor exclusively to .help elements
-    assert ".help[data-tip]" in (UI / "noc" / "app.js").read_text()
 
 
 def test_missions_pane_sections_in_order():
@@ -104,36 +96,17 @@ def test_missions_pane_sections_in_order():
         assert "hidden" in html[html.rindex("<section", 0, i):i + 60], (
             f"{late} must start hidden — day one shows exactly three sections"
         )
-    # machinery stays off this pane (all of it lives on the NOC now)
+    # machinery stays off this pane (0.21.0: and off every pane — the ops
+    # dashboard that used to carry it is gone)
     for gone in ('id="noc-tiles"', 'id="hb-history"', 'id="activity"',
                  'id="wiki-panel"', 'id="history-panel"', 'id="gaps-panel"',
                  'id="jd-blocks"', 'id="abilities"'):
-        assert gone not in html, f"{gone} belongs to the NOC pane, not Missions"
+        assert gone not in html, f"{gone} is machinery — it does not belong on Missions"
 
 
-def test_noc_pane_carries_the_moved_panels():
-    html = (UI / "noc" / "index.html").read_text()
-    for panel in (
-        "noc-tiles",       # role wall
-        "hb-latest",       # heartbeat
-        "gaps",            # gap board
-        "activity",        # activity stream
-        "wiki",            # knowledge shelf
-        "next",            # what happens next
-        "chip-autonomy",   # chips moved off Missions
-        "chip-risk",
-        "pace",
-        "history-panel",   # past missions
-    ):
-        assert panel in html, f"NOC pane missing {panel}"
-
-
-def test_jd_and_setup_ladder_moved_to_noc():
-    # 0.16.0: the living-draft JD and the ability ladder render on the ops
-    # pane; the Missions tab renders the journey payload and its buttons
-    noc_js = (UI / "noc" / "app.js").read_text()
-    assert "Living draft" in noc_js and "role_version" in noc_js
-    assert "renderSetup" in noc_js and "subtask" in noc_js
+def test_journey_pane_owns_the_owner_actions():
+    # the pane renders the journey payload and its buttons; the JD living
+    # draft and ability ladder left with the ops dashboard (0.21.0)
     js = (UI / "app.js").read_text()
     assert "Living draft" not in js and "goal-timeline" not in js
     # the M0a buttons post muted moment messages into the newest conversation
@@ -143,7 +116,7 @@ def test_jd_and_setup_ladder_moved_to_noc():
         assert say in js, f"button {say!r} missing from the journey pane"
 
 
-# ---- serving: /ui/noc/ stamped like /ui/ ------------------------------------
+# ---- serving: /ui/ stamped ---------------------------------------------------
 
 
 class _Ctx:
@@ -172,21 +145,9 @@ def test_ui_root_serves_stamped_missions_pane(client: TestClient):
     assert "Your mission — in my words" in r.text
 
 
-def test_ui_noc_serves_stamped_noc_pane(client: TestClient):
-    v = CuriosityPlugin.manifest.version
+def test_ui_noc_falls_back_to_the_missions_pane(client: TestClient):
+    # 0.21.0: a stale /ui/noc/ bookmark lands on the journey, not a 404
     r = client.get("/api/p/plugin-curiosity/ui/noc/")
     assert r.status_code == 200
-    assert f"app.js?v={v}" in r.text and f"style.css?v={v}" in r.text
-    assert "Operational dashboard" in r.text  # renamed from NOC in 0.9.5
-
-
-def test_ui_noc_no_trailing_slash_serves_noc_index(client: TestClient):
-    r = client.get("/api/p/plugin-curiosity/ui/noc")
-    assert r.status_code == 200
-    assert "Operational dashboard" in r.text
-
-
-def test_ui_noc_assets_served(client: TestClient):
-    for asset in ("noc/app.js", "noc/style.css"):
-        r = client.get(f"/api/p/plugin-curiosity/ui/{asset}")
-        assert r.status_code == 200, asset
+    assert "Your mission — in my words" in r.text
+    assert "Operational dashboard" not in r.text

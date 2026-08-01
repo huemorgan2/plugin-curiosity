@@ -190,16 +190,6 @@ def register_routes(app, ctx):
             content="<h1>plugin-curiosity UI not shipped</h1>", media_type="text/html"
         )
 
-    # 10.002: the NOC pane — a second static app behind its own sidebar
-    # section (SidebarSection.path="ui/noc/", luna 031).
-    @router.get("/ui/noc/")
-    async def serve_noc_root():
-        if (ui_dir / "noc" / "index.html").exists():
-            return _versioned_index(ui_dir / "noc")
-        return Response(
-            content="<h1>plugin-curiosity NOC UI not shipped</h1>", media_type="text/html"
-        )
-
     @router.get("/ui/{path:path}")
     async def serve_ui(path: str):
         if not path or path == "/":
@@ -207,7 +197,7 @@ def register_routes(app, ctx):
         target = (ui_dir / path).resolve()
         if not str(target).startswith(str(ui_dir.resolve())):
             raise HTTPException(403, "Forbidden")
-        # a directory hit (e.g. "noc") serves that app's stamped index
+        # a directory hit serves that app's stamped index
         if target.is_dir() and (target / "index.html").exists():
             return _versioned_index(target)
         if not target.exists():
