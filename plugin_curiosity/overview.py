@@ -587,6 +587,45 @@ def _activity(
     return [e[1] for e in events[:limit]]
 
 
+async def _rules(ctx: PluginContext) -> dict[str, Any] | None:
+    """11.007: the "My rules" strip — ACTIVE boundaries from goal-seek's
+    policy_list, plain sentences verbatim plus the server-counted honesty
+    line. None hides the strip (no goal-seek, no active rules, any error)."""
+    try:
+        tool = ctx.tool_registry.get("policy_list")
+    except Exception:  # noqa: BLE001
+        return None
+    handler = getattr(tool, "handler", None)
+    if handler is None:
+        return None
+    try:
+        out = await handler(status="active")
+    except Exception:  # noqa: BLE001
+        log.debug("boundary rules read failed", exc_info=True)
+        return None
+    active_rules = (out or {}).get("boundaries") or []
+    if not active_rules:
+        return None
+    checked = sum(int(b.get("checks_count") or 0) for b in active_rules)
+    denied = sum(int(b.get("denies_count") or 0) for b in active_rules)
+    since = min(
+        (str(b.get("confirmed_at") or b.get("created_at") or "")[:10]
+         for b in active_rules if b.get("confirmed_at") or b.get("created_at")),
+        default="",
+    )
+    if checked:
+        count_line = (
+            f"since {since}, {checked} action{'s' if checked != 1 else ''} "
+            f"checked, {denied} exception{'s' if denied != 1 else ''}"
+        )
+    else:
+        count_line = f"in force since {since} — no actions checked yet"
+    return {
+        "items": [b.get("plain_text", "") for b in active_rules],
+        "count_line": count_line,
+    }
+
+
 async def build_overview(
     ctx: PluginContext,
     *,
@@ -801,6 +840,12 @@ async def build_overview(
         except Exception:  # noqa: BLE001
             log.debug("intake decisions read failed", exc_info=True)
 
+    # 11.007: "My rules" — active boundaries read from goal-seek via its
+    # policy_list tool; plain_text is quoted VERBATIM (the sentence the owner
+    # confirmed IS the rule) plus the honest server-counted line. None (strip
+    # hidden) when goal-seek is absent or nothing is active yet.
+    rules_block = await _rules(ctx) if active is not None else None
+
     # 11.006/M5: automations feed both the journey (services + waiting) and
     # the Operational tab. Best-effort like every other read here.
     automations_list: list[dict[str, Any]] = []
@@ -829,6 +874,7 @@ async def build_overview(
             intake=intake,
             services=services_block(live_automations),
             automations=live_automations,
+            rules=rules_block,
             now=now,
         ),
         "automations": automations_list,

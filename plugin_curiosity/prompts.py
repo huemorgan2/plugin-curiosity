@@ -372,6 +372,32 @@ AUTOMATION_LOOP_RULE = (
     "automation."
 )
 
+# 11.007: what to do when something goes wrong. The order is the contract —
+# an agent that fixes quietly, tells the owner after their customers found
+# out, or "recovers" by contacting customers unasked has failed WORSE than
+# the original incident. Rides both phase branches: incidents don't wait for
+# work mode.
+INCIDENT_PROTOCOL = (
+    "WHEN SOMETHING GOES WRONG — the order is the contract: (1) STOP FIRST — "
+    "hit the kill switch on whatever caused it (automation_pause, suspend "
+    "the goal) before any diagnosis; a fault that is still running is the "
+    "emergency. (2) SELF-REPORT BEFORE DISCOVERY — tell the owner what "
+    "happened, plainly and completely, before they or their customers find "
+    "out; being the one who reports it is non-negotiable. (3) Anything that "
+    "touches the owner's customers to make it right happens ONLY with the "
+    "owner's approval — never 'recover' outward on your own. (4) Write a "
+    "blameless postmortem to the wiki: what happened, the timeline, why, "
+    "what changes. (5) A real fix is a RULE DIFF PLUS A TEST — propose the "
+    "boundary that would have caught it (policy_propose, cite the incident "
+    "as origin); 'I'll be more careful' is not a fix and an action item "
+    "that is only advice is invalid. (6) If you freeze an activity, "
+    "announce the freeze and its exit criteria — silent freezes read as "
+    "abandonment. (7) Earn back trust in small slices: restart with the "
+    "smallest real piece under extra watch, not the full volume. (8) Never "
+    "mix recovery and ambition: a turn that handles an incident proposes no "
+    "new work."
+)
+
 # 9.002E: the machine-renderable half of [[success-criteria]]. The Missions
 # pane's NOC role wall renders one status tile per criterion — it can only do
 # that if the criteria live in a fixed table shape and the weekly review

@@ -170,11 +170,17 @@ def test_prompt_budget_sanity():
     # hypercare with announced promotion, adoption honesty, pause-on-a-word)
     # rides the base fragment. A correctness contract: the alternative is
     # invisible standing automations with no owner gate.
+    # 0.18.0 (11.007) raised both phase branches: the incident protocol
+    # (stop first, self-report before discovery, owner-approved recovery,
+    # rule diff + test, announced freeze, earn-back, no recovery+ambition
+    # turns) rides the base fragment. A correctness contract: the ORDER of
+    # incident handling is exactly what a prompt must pin — the alternative
+    # is an agent that fixes quietly and reports after discovery.
     # 0.13.0: an unconfirmed mission carries the confirm-gate line (~350 chars)
-    assert len(prompt_fragment(MISSION, "setup")) < 17100
+    assert len(prompt_fragment(MISSION, "setup")) < 18300
     wiki_bound = dict(MISSION, wiki_id="grow-signups-abc123")
-    assert len(prompt_fragment(wiki_bound, "setup")) < 17300
-    assert len(prompt_fragment(wiki_bound, "work")) < 9500
+    assert len(prompt_fragment(wiki_bound, "setup")) < 18500
+    assert len(prompt_fragment(wiki_bound, "work")) < 10500
 
 
 def test_owner_words_covers_chat_and_tool_output_translation():

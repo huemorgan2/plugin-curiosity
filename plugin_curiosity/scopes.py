@@ -30,7 +30,7 @@ from sqlalchemy import select
 from luna_sdk import PluginContext, ToolDef
 
 from . import gating
-from .models import Mission, PlanChange, Scope
+from .models import Flag, Mission, PlanChange, Scope
 
 log = logging.getLogger("plugin-curiosity")
 
@@ -61,6 +61,86 @@ AGENT_PHASES = ("setup", "work")
 # learning that changes the role's SHAPE is a "role_pivot" — it bumps the
 # mission's role_version in the same transaction and surfaces to the owner.
 PLAN_CHANGE_KINDS = ("refine", "role_pivot")
+
+# 0.18.0 (11.007): when the owner approves the job description (S3 "Agree"),
+# Luna puts a default rule set on their desk — proposed, never active, the
+# owner confirms each one. Proposed once per install (flag), enforced by
+# goal-seek's effect gate; curiosity only files the proposals. The titles
+# must match goal-seek's own seed set — policy_propose is convergent by
+# title, so double-seeding cannot duplicate.
+BOUNDARY_SEEDS_FLAG = "boundary_seeds_proposed"
+BOUNDARY_SEEDS: tuple[dict[str, Any], ...] = (
+    {
+        "title": "Quiet hours",
+        "plain_text": (
+            "I never contact your customers outside 9:00-19:00 their local "
+            "time, on any channel. If I can't tell their timezone, I don't "
+            "contact them."
+        ),
+        "rule": (
+            '{"action_class": "outbound_contact", "channels": "all", '
+            '"window": {"start": "09:00", "end": "19:00", '
+            '"tz_source": "recipient"}}'
+        ),
+        "test_ref": "tests/test_boundaries.py::test_midnight_call_regression",
+    },
+    {
+        "title": "Phone needs your OK",
+        "plain_text": (
+            "Phone calls always need your approval first — every call, every "
+            "time."
+        ),
+        "rule": (
+            '{"action_class": "outbound_contact", "channels": ["phone"], '
+            '"approval_channels": ["phone"]}'
+        ),
+        "test_ref": "tests/test_boundaries.py::test_phone_always_needs_approval",
+    },
+    {
+        "title": "Spending cap",
+        "plain_text": (
+            "I never spend more than 50 in one action, and never more than 5 "
+            "spending actions a day, without asking you."
+        ),
+        "rule": (
+            '{"action_class": "spend", "channels": "all", '
+            '"limits": {"max_amount": 50, "per_day": 5}}'
+        ),
+        "test_ref": "tests/test_boundaries.py::test_spend_cap",
+    },
+)
+
+
+async def propose_boundary_seeds(ctx: PluginContext, sf) -> str:
+    """File the default boundaries with goal-seek, once. Returns a short
+    status string for the tool result (never raises)."""
+    try:
+        async with sf() as s:
+            if await s.get(Flag, BOUNDARY_SEEDS_FLAG) is not None:
+                return "boundary defaults already proposed"
+    except Exception:  # noqa: BLE001
+        return "boundary seed skipped: flag store unavailable"
+    try:
+        tool = ctx.tool_registry.get("policy_propose")
+    except Exception:  # noqa: BLE001
+        tool = None
+    handler = getattr(tool, "handler", None)
+    if handler is None:
+        # goal-seek absent — do NOT set the flag; retried at the next
+        # stage_set so a later goal-seek install still gets the seeds
+        return "goal-seek not installed — no boundary defaults proposed"
+    for seed in BOUNDARY_SEEDS:
+        try:
+            out = await handler(origin="set at agree", **seed)
+        except Exception as e:  # noqa: BLE001
+            return f"boundary seed failed: {e}"
+        if isinstance(out, dict) and out.get("error"):
+            return f"boundary seed refused: {out['error']}"
+    async with sf() as s:
+        s.add(Flag(key=BOUNDARY_SEEDS_FLAG, value="1"))
+        await s.commit()
+    return ("3 default rules proposed (quiet hours, phone approval, spending "
+            "cap) — waiting for the owner's OK, nothing enforced yet")
 
 CHARTER_SLUG = "role-charter"
 CHARTER_TITLE = "What this job needs"
@@ -462,6 +542,11 @@ def register_tools(ctx: PluginContext, store: ScopeStore) -> None:
             "if what you're doing changed, refresh your one-line status with "
             "current_state_set"
         )
+        # 0.18.0 (11.007): approval reached (S3+) → put the default rule set
+        # on the owner's desk, once
+        if SETUP_STAGES.index(stage) >= SETUP_STAGES.index("S3"):
+            result["boundary_seeds"] = await propose_boundary_seeds(
+                ctx, store._sf)  # noqa: SLF001
         return result
 
     async def _current_state(text: str) -> dict[str, Any]:

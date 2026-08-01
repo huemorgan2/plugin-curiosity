@@ -1194,6 +1194,9 @@ def prompt_fragment(
         # 11.006/M5: both phases — standing work is a visible automation
         # with sign-off and hypercare; the gates live in the tools
         + prompts.AUTOMATION_LOOP_RULE + " "
+        # 11.007: both phases — incidents stop first, self-report before
+        # discovery, and end in a rule diff plus a test, never advice
+        + prompts.INCIDENT_PROTOCOL + " "
     )
     if phase == "work":
         posture = (
