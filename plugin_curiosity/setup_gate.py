@@ -39,15 +39,21 @@ _MISSION_FIELDS = {"mission", "purpose"}
 # from the owner". So while the gate is closed the schemas must describe ONLY
 # the mission stage; the full checklist text appears the moment it opens.
 # sync_gate_descriptions() flips them on every prompt assembly.
+# phase13: the gated text speaks the draft-first intake contract (11.001/
+# phase12) — the pre-11.001 "save AS STATED, no confirmation round" wording
+# survived here and ordered the opposite of the intake flow.
 UPDATE_SELF_DESC_GATED = (
     "Save a single piece of your own identity during first-run setup. "
     "RIGHT NOW exactly ONE field is unlocked: mission. The mission comes "
-    "from the owner and is saved FIRST — the moment their message states "
-    "the work they want you to own, call mission_set(statement=...) and "
-    "then update_self(field='mission', value=<their words>) BEFORE "
-    "writing your reply. Save it AS STATED — no confirmation round. "
-    "Every other field is locked and unlocks the moment the mission is "
-    "saved; do not ask the owner about any of them yet."
+    "from the owner through intake: the moment their message hands you "
+    "work to own, capture their words VERBATIM with "
+    "mission_draft(verbatim=...) before any reply text (at most ONE "
+    "bounded round of 2-3 discovery questions may follow — and only if "
+    "it was not already asked), and on their next ON-TOPIC message save "
+    "with mission_set(statement=...) then update_self(field='mission', "
+    "value=...) BEFORE writing your reply — never a fresh question "
+    "round. Every other field is locked and unlocks the moment the "
+    "mission is saved; do not ask the owner about any of them yet."
 )
 
 UPDATE_SELF_DESC_OPEN = (
@@ -81,9 +87,13 @@ _LOCKED_FIELD_ERROR = {
     "ok": False,
     "error": "locked until the mission is saved",
     "hint": (
-        "Save the owner's mission first: mission_set(statement=...), then "
-        "update_self(field='mission', value=...). The other setup fields "
-        "unlock the moment it is saved — and they come from the owner: "
+        "Finish mission intake first: if the owner's words are not yet "
+        "captured, mission_draft(verbatim=...); once they have engaged "
+        "the mission thread, mission_set(statement=..., "
+        "origin_statement=their verbatim words), then "
+        "update_self(field='mission', value=...). Never re-open the "
+        "question round to get here. The other setup fields unlock the "
+        "moment the mission is saved — and they come from the owner: "
         "ask, don't invent."
     ),
 }
@@ -92,9 +102,11 @@ _LOCKED_COMPLETE_ERROR = {
     "ok": False,
     "error": "setup cannot finish: no mission saved yet",
     "hint": (
-        "The mission comes from the owner. Ask for it, save it with "
-        "mission_set(statement=...) and update_self(field='mission', "
-        "value=...), then let the owner give you the rest of the "
+        "The mission comes from the owner through intake: capture their "
+        "words with mission_draft(verbatim=...) when they state it, save "
+        "with mission_set(statement=...) and update_self(field='mission', "
+        "value=...) on their next on-topic message — never a fresh "
+        "question round — then let the owner give you the rest of the "
         "checklist."
     ),
 }

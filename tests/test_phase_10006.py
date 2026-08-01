@@ -546,7 +546,10 @@ def test_gate_installs_the_mission_only_descriptions():
     # field list, no name/emoji asks, no self-written mission.
     d = ut.definition.description
     assert "exactly ONE field is unlocked: mission" in d
-    assert "AS STATED" in d and "no confirmation round" in d
+    # phase13: the gated text speaks the draft-first intake contract — the
+    # old "AS STATED / no confirmation round" wording ordered the opposite
+    # of the intake flow and is gone.
+    assert "mission_draft" in d and "never a fresh question round" in d
     assert "agent_name" not in d and "emoji" not in d
     assert "you write yourself" not in d
     assert "LOCKED until the mission is saved" in ct.definition.description

@@ -481,7 +481,7 @@ if "prompt_overrides" in getattr(PluginManifest, "model_fields", {}):
 class CuriosityPlugin(LunaPlugin):
     manifest = PluginManifest(
         name="plugin-curiosity",
-        version="0.21.0",
+        version="0.22.0",
         description=(
             "Mission-driven curiosity: research, wiki-building, nightly dreams, "
             "self-set goals, weekly mission reviews, proactive reflections, and "
@@ -785,7 +785,17 @@ class CuriosityPlugin(LunaPlugin):
         duplicate appended fragment), and while missionless the mission-first
         ordering is prepended to the onboarding addendum itself — no 'this
         note OVERRIDES its ordering' prose, no position hack. Older cores
-        (luna_sdk without CLAIMABLE_SOURCES) keep the legacy reorder path."""
+        (luna_sdk without CLAIMABLE_SOURCES) keep the legacy reorder path.
+
+        phase13, the hosted-core shape: production luna emits the onboarding
+        addendum as a PLUGIN section (source 'plugin-onboarding') and feeds
+        nothing to the core.onboarding slot — the claim grants us nothing to
+        rewrite there, and the hook contract reverts any foreign-source
+        rewrite wholesale. Worse, the drive swap parks our fragment EARLY
+        while the pristine checklist keeps the recency seat near the end
+        (the 025 QA: recency wins). So while missionless on that shape we
+        skip the swap and take the validated legacy placement instead — own
+        sections moved to immediately after the addendum."""
         # 0.9.14: re-converge the tool-layer mission gate every assembly — a
         # plugin_onboarding hot reload re-registers the pristine handlers,
         # and load order may have beaten _activate to the registry.
@@ -804,6 +814,16 @@ class CuriosityPlugin(LunaPlugin):
         own = [s for s in secs if getattr(s, "source", "") == "plugin-curiosity"]
         if not own:
             return
+        missionless = (await self._store.get()) is None
+        if missionless:
+            sources = {getattr(s, "source", "") for s in secs}
+            if "core.onboarding" not in sources and "plugin-onboarding" in sources:
+                # Hosted-core shape (see docstring): the addendum is a foreign
+                # plugin section we may not rewrite — recency is the only
+                # legal lever, so keep the drive slot untouched and sit our
+                # fragment immediately after the checklist.
+                await self._reorder_prompt(hctx)
+                return
         if not any(getattr(s, "source", "") == "core.drive" for s in secs):
             # No named drive slot (owner monolith override, pre-split core):
             # nothing to occupy — legacy position fix still applies.
@@ -817,14 +837,16 @@ class CuriosityPlugin(LunaPlugin):
         )
         secs[idx] = frag  # swap: claimed drop of core.drive + own-source insert
         secs[idx + 1 : idx + 1] = own[1:]
-        if (await self._store.get()) is not None:
+        if not missionless:
             return
+        has_draft = (await self._store.draft_get()) is not None
         for s in secs:
             if getattr(s, "source", "") == "core.onboarding":
                 # 0.9.13 (luna 036: the claim binds to the LIVE addendum):
                 # rewrite the flow to mission-first, preserving the live
                 # SETUP STATE block; unknown addendum shape → prepend note.
-                rewritten = rewrite_onboarding_addendum(s.text)
+                # phase13: draft captured → the drafted (save-only) stage.
+                rewritten = rewrite_onboarding_addendum(s.text, has_draft=has_draft)
                 if rewritten is not None:
                     s.text = rewritten
                 else:

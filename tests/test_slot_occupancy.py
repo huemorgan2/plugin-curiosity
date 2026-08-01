@@ -31,12 +31,15 @@ def _sec(source: str, text: str = "x") -> types.SimpleNamespace:
     return types.SimpleNamespace(source=source, text=text)
 
 
-def _plugin(mission) -> CuriosityPlugin:
+def _plugin(mission, draft=None) -> CuriosityPlugin:
     p = CuriosityPlugin()
 
     class _Store:
         async def get(self):
             return mission
+
+        async def draft_get(self):
+            return draft
 
     p._store = _Store()
     return p
@@ -167,6 +170,60 @@ async def test_missionless_rewrites_live_addendum_mission_first(claims_core):
 
 def test_rewrite_helper_none_without_header():
     assert rewrite_onboarding_addendum("some other addendum shape") is None
+
+
+# ---- phase13: the hosted-core shape (addendum is a plugin-onboarding
+# section, nothing feeds core.onboarding) — the drive swap parks our
+# fragment early where it loses to the checklist's recency, so missionless
+# takes the validated reorder placement instead.
+
+
+@pytest.mark.asyncio
+async def test_hosted_missionless_reorders_instead_of_swapping(claims_core):
+    p = _plugin(None)
+    drive, onboarding, wiki, own = (
+        _sec("core.drive", "core drive"),
+        _sec("plugin-onboarding", "pristine checklist"),
+        _sec("plugin-wiki"),
+        _sec("plugin-curiosity", "mission ask"),
+    )
+    hctx = types.SimpleNamespace(sections=[drive, onboarding, wiki, own])
+    await p._occupy_prompt(hctx)
+    # recency seat: fragment immediately after the addendum; drive untouched
+    assert hctx.sections == [drive, onboarding, own, wiki]
+    assert drive.text == "core drive"
+    assert onboarding.text == "pristine checklist"  # foreign source: no rewrite
+
+
+@pytest.mark.asyncio
+async def test_hosted_mission_present_still_swaps(claims_core):
+    p = _plugin({"statement": "grow signups"})
+    drive, onboarding, own = (
+        _sec("core.drive", "core drive"),
+        _sec("plugin-onboarding", "checklist"),
+        _sec("plugin-curiosity", "mission drive"),
+    )
+    hctx = types.SimpleNamespace(sections=[drive, onboarding, own])
+    await p._occupy_prompt(hctx)
+    assert hctx.sections == [own, onboarding]
+
+
+@pytest.mark.asyncio
+async def test_claimed_missionless_with_draft_renders_drafted_stage(claims_core):
+    from plugin_curiosity.mission import MISSION_GATE_FLOW_DRAFTED
+
+    p = _plugin(None, draft={"verbatim": "run my pipeline"})
+    gate_addendum = (
+        f"Frame prose.\n\n{SETUP_STATE_HEADER}:\n\nMissing — required:\n"
+        "  ☐ mission\n\nTools: `update_self(field, value)`."
+    )
+    drive = _sec("core.drive", "core drive")
+    onboarding = _sec("core.onboarding", gate_addendum)
+    own = _sec("plugin-curiosity", "mission ask")
+    hctx = types.SimpleNamespace(sections=[drive, onboarding, own])
+    await p._occupy_prompt(hctx)
+    assert onboarding.text.startswith(MISSION_GATE_FLOW_DRAFTED)
+    assert "capture it VERBATIM" not in onboarding.text
 
 
 def test_mission_first_flow_unifies_both_saves():

@@ -244,7 +244,9 @@ class MissionStore:
         """Store the owner's mission words the instant they land. Convergent:
         if a draft already exists the OLDEST wins — the second call returns it
         instead of adding a rival (concurrent turns race any list-before-
-        create; oldest-wins converges)."""
+        create; oldest-wins converges). phase13: the returned dict says which
+        case happened (`already_existed`) so the tool layer can refuse the
+        repeat instead of silently re-issuing the intake steering."""
         verbatim = verbatim.strip()
         if not verbatim:
             raise ValueError("draft must be non-empty — the owner's words as stated")
@@ -255,11 +257,11 @@ class MissionStore:
                 )
             ).scalar_one_or_none()
             if existing is not None:
-                return self._draft_dict(existing)
+                return {**self._draft_dict(existing), "already_existed": True}
             d = MissionDraft(verbatim=verbatim)
             s.add(d)
             await s.commit()
-            return self._draft_dict(d)
+            return {**self._draft_dict(d), "already_existed": False}
 
     async def draft_get(self) -> dict[str, Any] | None:
         """The oldest (winning) draft, or None."""
@@ -744,14 +746,35 @@ def register_tools(ctx: PluginContext, store: MissionStore) -> None:
             draft = await store.draft(verbatim)
         except ValueError as e:
             return {"error": str(e)}
+        # phase13: the repeat call is a REFUSAL with steering, not a silent
+        # echo — the silent echo re-issued the "ask your questions" order and
+        # produced a second question round in production (2026-08-01).
+        if draft.pop("already_existed", False):
+            return {
+                "already_drafted": True,
+                "draft": draft,
+                "next": (
+                    "their words were ALREADY captured — this call changed "
+                    "nothing, and your ONE round of discovery questions is "
+                    "SPENT. Do NOT ask another question, and do NOT repeat or "
+                    "expand questions you already wrote: if your reply text "
+                    "is written, send it unchanged. If the owner's message "
+                    "engaged the mission thread, save NOW with "
+                    "mission_set(statement=..., origin_statement=the draft "
+                    "verbatim); a detour reply never triggers the save — "
+                    "handle it and renew the thread in one line."
+                ),
+            }
         return {
             "draft": draft,
             "next": (
                 "their words are safe — now, if mission_set is not among your "
                 "tools yet, call load_tools(group='curiosity') in this SAME "
-                "reply (its tools go live next turn, never this one), then "
-                "ask your ONE round of discovery questions (max 2-3, only "
-                "ones whose answers change your plan) in this same reply. On "
+                "reply (its tools go live next turn, never this one). Your "
+                "reply carries your ONE round of discovery questions (max "
+                "2-3, only ones whose answers change your plan) — if you "
+                "already wrote them before this call, send that reply AS IS; "
+                "never repeat, reword, or expand a question round. On "
                 "the owner's next ON-TOPIC message you MUST call mission_set "
                 "(sharpened statement, origin_statement=this verbatim) no "
                 "matter how thinly they engaged — never a second question "
@@ -1129,10 +1152,57 @@ How this stage works:
      intake move — the mission is confirmed, not received."""
 
 
-def _mission_gate_state_block(state_block: str) -> str:
+# phase13: the gate stage AFTER the capture — the draft exists, so the ask
+# instructions must not (five draft-blind copies of "ask 2-3 questions" are
+# what re-asked the question round in production). One story: the round is
+# spent; the next on-topic message saves.
+MISSION_GATE_FLOW_DRAFTED = """\
+You're a brand-new agent meeting your owner for the first time. You are
+not set up yet, and setup is gated on ONE thing: your MISSION. The owner
+has already stated it and you have already captured their words VERBATIM
+in your intake draft — never call `mission_draft` again, and your single
+round of discovery questions is SPENT: never ask another mission
+question, and never repeat or reword questions you already asked.
+
+How this stage ends:
+
+  1. The owner's next ON-TOPIC message ends intake — any engagement with
+     the mission thread, however thin (answers, partial answers, a
+     correction, "just go"). That turn has a FIXED shape:
+        a. call `mission_set(statement=..., origin_statement=...)` —
+           FIRST action, before any reply text. statement = the mission
+           sharpened by what you learned; origin_statement = their
+           verbatim words from the draft. If `mission_set` is not among
+           your tools, call `load_tools(group="curiosity")` and save on
+           the automatic next turn — the save still happens before
+           anything else.
+        b. call `update_self(field='mission', value=...)`
+        c. only now write your reply: reflect back in one line what you
+           understood the mission to be, then ask ONE question and one
+           only — what NAME the owner wants to give you. The name
+           always comes from the owner, never from you.
+     HARD RULES: replying without BOTH calls is acting-vs-claiming —
+     nothing was saved, and until `mission_set` runs your whole
+     curiosity loop (wiki, research, dreams) stays dark. No
+     `complete_setup`, no plugin installs, no persona writing, no
+     mission work yet.
+
+  2. IMPATIENCE OVERRIDES EVERYTHING: any "just go", terse answer, or
+     hint of annoyance means save NOW (step 1's shape, that same turn).
+
+  3. A DETOUR message — the owner raises something else entirely —
+     NEVER ends intake. Handle it fully and well (their agenda outranks
+     your intake), keep their draft words safe, and close your reply
+     with ONE line renewing the mission thread. Do NOT call mission_set
+     off a detour — the mission is confirmed, not received."""
+
+
+def _mission_gate_state_block(state_block: str, has_draft: bool = False) -> str:
     """The reduced SETUP STATE block for the gate stage: saved items stay
     visible (never re-ask), but the missing lists collapse to the mission
-    alone and the tools line names only the two mission saves."""
+    alone and the tools line names only the two mission saves. phase13:
+    with a captured draft the mission bullet flips to save-only — the
+    capture/ask vocabulary must not survive into the drafted stage."""
     lines = state_block.splitlines()
     header = lines[0] if lines else SETUP_STATE_HEADER + ":"
     saved = [ln for ln in lines if ln.strip().startswith("✓")]
@@ -1141,6 +1211,25 @@ def _mission_gate_state_block(state_block: str) -> str:
         out.append("Saved:")
         out.extend(saved)
         out.append("")
+    if has_draft:
+        out += [
+            "Missing — required:",
+            "  ☐ mission — the owner's words are ALREADY captured in your",
+            "    intake draft and your single question round is SPENT: on",
+            "    their next ON-TOPIC message save with `mission_set`",
+            "    (+ `update_self`) — never ask another mission question,",
+            "    never call `mission_draft` again; impatience means save",
+            "    immediately; a detour reply never triggers the save.",
+            "",
+            "The rest of the setup checklist is locked until the mission is",
+            "saved; it appears here the moment it is.",
+            "",
+            "Tools: `mission_set(statement=..., origin_statement=...)` and "
+            "`update_self(field='mission', value=...)` to save (plus "
+            "`load_tools(group=\"curiosity\")` first if `mission_set` is "
+            "not yet available).",
+        ]
+        return "\n".join(out)
     out += [
         "Missing — required:",
         "  ☐ mission — the owner's next message may contain it (work",
@@ -1164,7 +1253,7 @@ def _mission_gate_state_block(state_block: str) -> str:
     return "\n".join(out)
 
 
-def rewrite_onboarding_addendum(text: str) -> str | None:
+def rewrite_onboarding_addendum(text: str, has_draft: bool = False) -> str | None:
     """Mission-first rewrite of the claimed core.onboarding section (0.9.13).
 
     Replaces the frame/flow/field-meaning prose while keeping the live SETUP
@@ -1172,15 +1261,17 @@ def rewrite_onboarding_addendum(text: str) -> str | None:
     still missing the rewrite is the mission GATE — a mission-only stage with
     the rest of the checklist absent from the prompt entirely; once the
     mission is saved the full MISSION_FIRST_FLOW + verbatim state block
-    returns. Returns None when the header is absent — an unfamiliar addendum
-    shape the caller handles with the conservative MISSION_FIRST_NOTE
-    prepend instead."""
+    returns. phase13: with a captured intake draft the gate stage renders
+    the DRAFTED flow — save-only, the question round spent. Returns None
+    when the header is absent — an unfamiliar addendum shape the caller
+    handles with the conservative MISSION_FIRST_NOTE prepend instead."""
     idx = text.find(SETUP_STATE_HEADER)
     if idx < 0:
         return None
     state_block = text[idx:]
     if "☐ mission" in state_block:
-        return MISSION_GATE_FLOW + "\n\n" + _mission_gate_state_block(state_block)
+        flow = MISSION_GATE_FLOW_DRAFTED if has_draft else MISSION_GATE_FLOW
+        return flow + "\n\n" + _mission_gate_state_block(state_block, has_draft=has_draft)
     return MISSION_FIRST_FLOW + "\n\n" + state_block
 
 
@@ -1188,6 +1279,7 @@ def prompt_fragment(
     mission: dict[str, Any] | None,
     phase: str | None = None,
     slot_mode: bool = False,
+    draft: dict[str, Any] | None = None,
 ) -> str:
     """The curiosity capability note. With a mission: own it + the rails,
     plus the phase posture (9C — setup: the talented hire earning autonomy;
@@ -1196,7 +1288,11 @@ def prompt_fragment(
     slot_mode (0.9.7): True on cores that grant prompt-slot claims — the
     fragment then OCCUPIES the core.drive slot and the checklist ordering is
     handled by MISSION_FIRST_NOTE inside the addendum, so the missionless
-    text drops its 'this note OVERRIDES its ordering' prose."""
+    text drops its 'this note OVERRIDES its ordering' prose.
+
+    draft (phase13): the captured intake draft, when missionless. With one,
+    the fragment must NOT re-issue the capture/ask instructions — the
+    question round is spent and the only remaining move is the save."""
     rails = (
         "Action rails: schedule recurring work with the trigger_* tools (the "
         "clock is external and always-on). When you notice a repeatable action, "
@@ -1207,6 +1303,29 @@ def prompt_fragment(
         "with share_thought (cite a [[wiki-page]] or source; it enforces the "
         "noise budget — one routine reflection a day, quiet hours queue)."
     )
+    if mission is None and draft is not None:
+        # phase13: the drafted stage. The owner's words are captured; the
+        # single question round is spent. One story everywhere: save on the
+        # next on-topic message, never ask again.
+        return (
+            "Curiosity: you have no active mission yet, but the owner has "
+            "stated one and their words are captured VERBATIM in your intake "
+            f"draft: \"{draft.get('verbatim', '')}\". Your ONE round of "
+            "discovery questions is SPENT — never ask another mission "
+            "question, never repeat or reword one you already asked, and "
+            "never call mission_draft again. On the owner's next ON-TOPIC "
+            "message — any engagement with the mission thread, however thin "
+            "— save FIRST, before any reply text, with mission_set "
+            "(statement=the mission sharpened by what you learned, "
+            "origin_statement=their verbatim words), then "
+            "update_self(field='mission', value=...) if first-run setup is "
+            "in progress. If mission_set is not among your tools, call "
+            "load_tools(group='curiosity') and save on the automatic next "
+            "turn. Impatience — 'just go', terse answers — means save "
+            "immediately. A DETOUR reply (they raise something else) never "
+            "triggers the save: handle it fully, keep the draft safe, and "
+            "close with one line renewing the mission thread. " + rails
+        )
     if mission is None:
         # Mission-first onboarding (phase 6): the vision's inversion — mission →
         # curiosity → shared understanding → trust → setup. This fragment sits
