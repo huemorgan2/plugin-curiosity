@@ -112,7 +112,8 @@ async def test_sync_updates_stale_target_in_place(ctx):
          "target": "old placeholder", "expr_raw": "every day at 09:00",
          "enabled": True},
     ]
-    r = await call(ctx, "mission_set", statement="grow signups")
+    await call(ctx, "mission_set", statement="grow signups")
+    r = await call(ctx, "mission_confirm")  # phase12: schedules sync on the yes
     updated = ctx.tool_registry.trigger_updated
     assert [u["id"] for u in updated] == ["trg-old"]
     assert updated[0]["target"] == research.DAILY_RESEARCH_TARGET

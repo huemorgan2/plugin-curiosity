@@ -809,8 +809,8 @@ async def build_overview(
             "kind": "confirm",
             "text": (
                 'Waiting for your yes — reply "go" in chat (or push back) '
-                "and the deep setup pass starts; otherwise it proceeds on "
-                "its own after about half a day."
+                "and the deep setup pass starts; until then the agent stays "
+                "light and nothing deep runs."
             ),
         })
 

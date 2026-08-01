@@ -367,19 +367,21 @@ def schedule_on_load_work(
             await maybe_send_install_kickoff(ctx, store)
         except Exception:  # noqa: BLE001
             log.warning("install kickoff on load failed", exc_info=True)
-        # 11.001: intake janitors — BEFORE the missionless early-return below,
-        # because the draft reaper can be the thing that creates the mission
-        # (a >24 h draft promotes verbatim through the full mission_set path).
+        # 11.001/phase12: intake janitors — BEFORE the missionless
+        # early-return below. Neither creates anything anymore: a stale
+        # draft earns ONE reflect-back re-ask (never a verbatim promotion),
+        # and an unconfirmed mission earns ONE confirm re-ask (never a
+        # timeout-fired deep pass) — an upgrade must not spend unasked.
         try:
-            result = await mission.reap_stale_draft(ctx, store)
-            if result not in ("no draft", "draft fresh"):
-                log.info("draft reaper on load: %s", result)
+            result = await mission.nudge_stale_draft(ctx, store)
+            if result not in ("no draft", "draft fresh", "already nudged"):
+                log.info("draft nudge on load: %s", result)
         except Exception:  # noqa: BLE001
-            log.warning("draft reaper on load failed", exc_info=True)
+            log.warning("draft nudge on load failed", exc_info=True)
         try:
             result = await research.maybe_start_deep_kickoff(ctx, store)
-            if result == "started":
-                log.info("deep kickoff started on load")
+            if result in ("started", "nudged"):
+                log.info("confirm-gate janitor on load: %s", result)
         except Exception:  # noqa: BLE001
             log.warning("deep kickoff check on load failed", exc_info=True)
         # 0.10.0: goal-engine handover. With goal-seek installed and open
@@ -408,11 +410,20 @@ def schedule_on_load_work(
             except Exception:  # noqa: BLE001
                 log.warning("pointer repair on load failed", exc_info=True)
         try:
-            if await store.get() is None:
-                return  # no mission — mission_set will register schedules
-            result = await mission._sync_schedules(ctx)
-            if result != "already registered":
-                log.info("schedule sync on load: %s", result)
+            m = await store.get()
+            if m is None:
+                return  # no mission — mission_confirm will register schedules
+            # phase12: no recurring spend before the owner's yes. Also
+            # withdraw triggers a pre-0.20 version registered at mission_set
+            # for a mission still waiting on its confirmation.
+            if mission.schedules_gated(m):
+                result = await mission.retract_schedules(ctx)
+                if result.startswith("retracted"):
+                    log.info("schedule retraction on load: %s", result)
+            else:
+                result = await mission._sync_schedules(ctx)
+                if result != "already registered":
+                    log.info("schedule sync on load: %s", result)
         except Exception:  # noqa: BLE001
             log.warning("schedule sync on load failed", exc_info=True)
         if scope_store is not None:
@@ -470,7 +481,7 @@ if "prompt_overrides" in getattr(PluginManifest, "model_fields", {}):
 class CuriosityPlugin(LunaPlugin):
     manifest = PluginManifest(
         name="plugin-curiosity",
-        version="0.19.0",
+        version="0.20.0",
         description=(
             "Mission-driven curiosity: research, wiki-building, nightly dreams, "
             "self-set goals, weekly mission reviews, proactive reflections, and "
@@ -853,18 +864,20 @@ class CuriosityPlugin(LunaPlugin):
         secs[pos:pos] = own
 
     def _spawn_intake_janitors(self) -> None:
-        """11.001: fire-and-forget per-turn janitors — the 24 h draft reaper
-        and the confirm-gate timeout both key on 'next contact', and a turn
-        IS contact. Cheap early-exits inside; never blocks prompt assembly."""
+        """11.001/phase12: fire-and-forget per-turn janitors — the stale-draft
+        re-ask and the confirm-gate re-ask both key on 'next contact', and a
+        turn IS contact. One-time nudges only; nothing is created or spent
+        (the deep pass fires solely from mission_confirm). Cheap early-exits
+        inside; never blocks prompt assembly."""
         if self._ctx is None or self._store is None or self._missing:
             return
         ctx, store = self._ctx, self._store
 
         async def _run() -> None:
             try:
-                result = await mission.reap_stale_draft(ctx, store)
-                if result == "promoted":
-                    log.info("draft reaper: stale draft promoted on contact")
+                result = await mission.nudge_stale_draft(ctx, store)
+                if result == "nudged":
+                    log.info("draft nudge: stale draft re-asked on contact")
                 await research.maybe_start_deep_kickoff(ctx, store)
             except Exception:  # noqa: BLE001
                 log.debug("intake janitor failed", exc_info=True)

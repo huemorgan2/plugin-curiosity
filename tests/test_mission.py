@@ -82,17 +82,23 @@ async def test_remission_set_rewrites_hub_keeps_stub_bodies(ctx):
 
 
 @pytest.mark.asyncio
-async def test_mission_set_registers_schedules_idempotently(ctx):
-    from plugin_curiosity.mission import MISSION_SCHEDULES
+async def test_confirm_registers_schedules_idempotently(ctx):
+    from plugin_curiosity.mission import MISSION_SCHEDULES, SCHEDULES_GATED_NOTE
 
+    # phase12: mission_set registers NOTHING — the yes is what releases spend
     r = await call(ctx, "mission_set", statement="grow signups")
-    created = ctx.tool_registry.trigger_created
-    assert {c["name"] for c in created} == {s["name"] for s in MISSION_SCHEDULES}
-    assert all(c["action_type"] == "agent_prompt" for c in created)
-    assert "created" in r["schedules"]
+    assert r["schedules"] == SCHEDULES_GATED_NOTE
+    assert ctx.tool_registry.trigger_created == []
 
-    # second set: triggers already exist -> no duplicates
-    await call(ctx, "mission_set", statement="ship the app")
+    c = await call(ctx, "mission_confirm")
+    created = ctx.tool_registry.trigger_created
+    assert {c2["name"] for c2 in created} == {s["name"] for s in MISSION_SCHEDULES}
+    assert all(c2["action_type"] == "agent_prompt" for c2 in created)
+    assert "created" in c["schedules"]
+
+    # re-sync: triggers already exist -> no duplicates
+    r2 = await call(ctx, "mission_schedules_sync")
+    assert r2["schedules"] == "already registered"
     assert len(ctx.tool_registry.trigger_created) == len(MISSION_SCHEDULES)
 
 
@@ -106,7 +112,8 @@ async def test_missing_peers_degrade_gracefully(ctx, store):
     assert r["mission"]["statement"] == "grow signups"  # the write itself succeeds
     assert "unavailable" in r["identity_sync"]
     assert "unavailable" in r["wiki_stubs"]
-    assert "not installed" in r["schedules"]
+    c = await call(ctx, "mission_confirm")  # phase12: schedules sync on the yes
+    assert "not installed" in c["schedules"]
     assert (await store.get())["statement"] == "grow signups"
 
 
@@ -168,8 +175,10 @@ async def test_schedules_sync_restores_wiped_triggers(ctx):
     from plugin_curiosity.mission import MISSION_SCHEDULES
 
     await call(ctx, "mission_set", statement="grow signups")
+    await call(ctx, "mission_confirm")  # phase12: schedules register here
     # server-side wipe: the scheduler account lost every trigger
     ctx.tool_registry.existing_triggers.clear()
+    ctx.tool_registry.trigger_created.clear()
 
     r = await call(ctx, "mission_schedules_sync")
     assert "created" in r["schedules"]
@@ -188,6 +197,7 @@ async def test_schedules_sync_without_mission_or_scheduler(ctx):
     assert "error" in await call(ctx, "mission_schedules_sync")  # no mission
 
     await call(ctx, "mission_set", statement="grow signups")
+    await call(ctx, "mission_confirm")  # phase12: sync is gated until the yes
     ctx.tool_registry.scheduler_installed = False
     r = await call(ctx, "mission_schedules_sync")
     assert "not installed" in r["schedules"]  # degrade, never a crash

@@ -35,9 +35,11 @@ log = logging.getLogger("plugin-curiosity")
 RUNG_MIN, RUNG_MAX = 1, 4
 RISK_CEILINGS = ("low", "medium", "high")
 
-# Recurring schedules registered on mission_set. Targets are self-contained
-# prompts that re-read the CURRENT mission at fire time (via mission_get), so
-# refining the statement never requires re-syncing the scheduler.
+# Recurring schedules registered on mission_confirm (phase12 — spend waits
+# for the owner's yes; pre-split missions past S0 sync on load as before).
+# Targets are self-contained prompts that re-read the CURRENT mission at fire
+# time (via mission_get), so refining the statement never requires re-syncing
+# the scheduler.
 # _sync_schedules updates existing triggers in place when a target or
 # schedule_expr changes between plugin versions. 02:00 is the dead-hours slot:
 # inside quiet hours (the dream's share_thought queues until morning) and away
@@ -522,35 +524,118 @@ async def _sync_schedules(ctx: PluginContext) -> str:
     return f"created {created}, updated {updated}"
 
 
-# 11.001/M1: how long an unconsumed intake draft may sit before the reaper
-# promotes it to the mission AS STATED. The owner said the words; a dead
-# conversation must not orphan them.
-DRAFT_REAP_AGE_H = 24.0
+# phase12: recurring schedules are self-directed spend — they wait for the
+# owner's yes. Same at-gate condition as the confirm-gate janitor and the
+# prompt's confirm line; a mission past S0 (grandfathered pre-split) or in
+# work phase syncs as before.
+SCHEDULES_GATED_NOTE = (
+    "waiting for the owner's yes — recurring schedules register on "
+    "mission_confirm"
+)
 
 
-async def reap_stale_draft(ctx: PluginContext, store: MissionStore) -> str:
-    """Promote a >24 h-old intake draft to the mission, verbatim, through the
-    full mission_set tool path (identity, wiki, schedules, kickoff). Runs from
-    on-load work and per-turn fire-and-forget — concurrent calls converge:
-    store.set keeps a single active mission and consumes every draft, and the
-    oldest draft is the only one either call promotes."""
+def schedules_gated(mission: dict[str, Any] | None) -> bool:
+    if mission is None:
+        return True
+    return (
+        mission.get("setup_stage") in (None, "S0")
+        and mission.get("agent_phase") != "work"
+        and not mission.get("confirmed_at")
+    )
+
+
+async def retract_schedules(ctx: PluginContext) -> str:
+    """phase12 upgrade path: withdraw the recurring triggers a pre-0.20
+    version registered at mission_set for a mission the owner never
+    confirmed. Best-effort via the raw scheduler handlers (the heartbeat
+    dedupe pattern) so approval policies never park a turn; the triggers
+    come back whole on mission_confirm via _sync_schedules."""
+    try:
+        lister = ctx.tool_registry.get("trigger_list").handler
+        deleter = ctx.tool_registry.get("trigger_delete").handler
+    except KeyError:
+        return "scheduler not consultable"
+    try:
+        listed = await lister()
+    except Exception:  # noqa: BLE001
+        return "scheduler unreachable"
+    if not isinstance(listed, dict) or "error" in listed:
+        return "scheduler unreachable"
+    names = {s["name"] for s in MISSION_SCHEDULES}
+    deleted = 0
+    for t in listed.get("triggers", []):
+        if t.get("name") in names and t.get("id"):
+            try:
+                result = await deleter(id=str(t["id"]))
+            except Exception:  # noqa: BLE001
+                continue
+            if isinstance(result, dict) and result.get("error"):
+                continue
+            deleted += 1
+    if deleted:
+        log.info("retracted %s unconfirmed-mission schedule(s)", deleted)
+    return f"retracted {deleted}" if deleted else "none registered"
+
+
+# 11.001/M1: how long an unconsumed intake draft may sit before the ONE
+# re-ask nudge fires. phase12: the reaper never promotes anymore — a mission
+# the owner never validated is exactly the incident the revamp forbids
+# ("confirmed, not received"). The owner's words stay safe in the draft
+# forever; silence earns a single reflect-back re-ask, never a mission.
+DRAFT_NUDGE_AGE_H = 24.0
+
+DRAFT_NUDGE_TITLE = "Mission words awaiting the owner's yes"
+
+DRAFT_NUDGE_TOOLS = ["mission_get"]
+
+_DRAFT_NUDGE_FLAG = "draft_nudge_sent"
+_draft_nudge_claims: set[str] = set()
+
+DRAFT_NUDGE_CONTENT = """\
+A while ago the owner said this about work they might want you to own:
+
+  "{verbatim}"
+
+No mission was ever saved — the conversation moved on before they
+confirmed. This turn is ONE short re-ask and nothing else. Reply with at
+most 4 short lines, plain words, your own voice: reflect their words back
+("you mentioned wanting …"), ask if this is the mission they want you to
+own — a simple yes and you'll save it and get started — or invite them to
+reword it. Do NOT call mission_set now (their yes is what saves it), do NO
+research, and ask nothing else."""
+
+
+async def nudge_stale_draft(ctx: PluginContext, store: MissionStore) -> str:
+    """phase12: a >24 h unconsumed intake draft earns ONE muted re-ask nudge
+    (flag-guarded) that reflects the owner's verbatim words back and asks for
+    their yes. It NEVER promotes the draft — mission_set runs only from a
+    turn where the owner engaged. Runs from on-load work and per-turn
+    fire-and-forget; a mission going active clears every draft."""
     if await store.get() is not None:
         n = await store.clear_drafts()
         return f"cleared {n} draft(s): mission active" if n else "no draft"
     d = await store.draft_get()
     if d is None:
         return "no draft"
-    if (d["age_hours"] or 0) < DRAFT_REAP_AGE_H:
+    if (d["age_hours"] or 0) < DRAFT_NUDGE_AGE_H:
         return "draft fresh"
-    try:
-        setter = ctx.tool_registry.get("mission_set").handler
-    except Exception:  # noqa: BLE001 - registry not ready; retry next pass
-        return "mission_set unavailable"
-    result = await setter(statement=d["verbatim"], origin_statement=d["verbatim"])
+    did = str(d["id"])
+    nudge_key = f"{_DRAFT_NUDGE_FLAG}:{did}"
+    if did in _draft_nudge_claims or await research.flag_get(store._sf, nudge_key) is not None:  # noqa: SLF001
+        _draft_nudge_claims.add(did)
+        return "already nudged"
+    _draft_nudge_claims.add(did)
+    await research.flag_set(store._sf, nudge_key, "sent")  # noqa: SLF001
+    result = await ctx.send_muted_message(
+        DRAFT_NUDGE_TITLE,
+        DRAFT_NUDGE_CONTENT.format(verbatim=d["verbatim"]),
+        channel="moment",
+        source="curiosity",
+        tools=DRAFT_NUDGE_TOOLS,
+    )
     if isinstance(result, dict) and result.get("error"):
-        return f"promotion failed: {result['error']}"
-    log.info("stale mission draft promoted verbatim after %sh", DRAFT_REAP_AGE_H)
-    return "promoted"
+        log.info("draft nudge not delivered: %s", result["error"])
+    return "nudged"
 
 
 def register_tools(ctx: PluginContext, store: MissionStore) -> None:
@@ -581,11 +666,15 @@ def register_tools(ctx: PluginContext, store: MissionStore) -> None:
             "mission": mission,
             "identity_sync": await _write_through_identity(ctx, mission["statement"]),
             "wiki_stubs": await _seed_wiki_stubs(ctx, mission["statement"], wk),
-            "schedules": await _sync_schedules(ctx),
-            # fire-and-forget: the instant-brief moment posts right after this
-            # turn (11.001: the deep pass waits for mission_confirm / 12 h).
-            # Read the succinct-persona signal HERE (turn session is live) so
-            # the background task carries a flag, not a second DB read.
+            # phase12: a just-set mission is never confirmed — recurring
+            # schedules (daily research, dream, reviews) register on
+            # mission_confirm, not here. No spend before the yes.
+            "schedules": SCHEDULES_GATED_NOTE,
+            # fire-and-forget: the instant-brief moment posts right after
+            # this turn (11.001: the deep pass waits for mission_confirm —
+            # and for nothing else, phase12). Read the succinct-persona
+            # signal HERE (turn session is live) so the background task
+            # carries a flag, not a second DB read.
             "kickoff": research.spawn_kickoff(
                 ctx, mission["statement"], wiki_slug=slug,
                 compact=await research._prefers_compact(ctx),
@@ -593,9 +682,10 @@ def register_tools(ctx: PluginContext, store: MissionStore) -> None:
             "reminder": (
                 "set your one-line status now with current_state_set — the "
                 "owner's pane shows it under the mission statement. A quick "
-                "first-look brief posts in a moment; the deep setup pass "
-                "waits for the owner's yes — when they confirm (any 'go'/"
-                "'yes'/'sounds right'), call mission_confirm."
+                "first-look brief posts in a moment; the deep setup pass AND "
+                "your recurring schedules wait for the owner's yes — when "
+                "they confirm (any 'go'/'yes'/'sounds right', or they engage "
+                "you to start the work), call mission_confirm."
             ),
         }
 
@@ -623,7 +713,10 @@ def register_tools(ctx: PluginContext, store: MissionStore) -> None:
                         )
                 except Exception:  # noqa: BLE001
                     log.debug("wiki description refresh failed", exc_info=True)
-        out["schedules"] = await _sync_schedules(ctx)
+        out["schedules"] = (
+            SCHEDULES_GATED_NOTE if schedules_gated(mission)
+            else await _sync_schedules(ctx)
+        )
         return out
 
     async def _get() -> dict[str, Any]:
@@ -637,9 +730,10 @@ def register_tools(ctx: PluginContext, store: MissionStore) -> None:
                     "note": (
                         "no active mission, but an intake draft holds the "
                         "owner's words — save it with mission_set (sharpened "
-                        "statement, origin_statement=the draft verbatim) on "
-                        "their next reply, or immediately if they seem done "
-                        "answering"
+                        "statement, origin_statement=the draft verbatim) the "
+                        "moment they engage the mission thread or show "
+                        "impatience; a reply about something else never "
+                        "triggers the save"
                     ),
                 }
             return {"mission": None, "note": "no active mission — ask the owner for one"}
@@ -658,11 +752,14 @@ def register_tools(ctx: PluginContext, store: MissionStore) -> None:
                 "reply (its tools go live next turn, never this one), then "
                 "ask your ONE round of discovery questions (max 2-3, only "
                 "ones whose answers change your plan) in this same reply. On "
-                "the owner's NEXT message you MUST call mission_set "
+                "the owner's next ON-TOPIC message you MUST call mission_set "
                 "(sharpened statement, origin_statement=this verbatim) no "
-                "matter how much they answered — never a second question "
-                "round. If they show ANY impatience, skip the questions and "
-                "save with mission_set at the first turn it is available."
+                "matter how thinly they engaged — never a second question "
+                "round. A DETOUR reply (they raise something else) never "
+                "triggers the save: handle it, keep the draft safe, renew "
+                "the thread in one line. If they show ANY impatience, skip "
+                "the questions and save with mission_set at the first turn "
+                "it is available."
             ),
         }
 
@@ -673,6 +770,9 @@ def register_tools(ctx: PluginContext, store: MissionStore) -> None:
             return {"error": str(e)}
         await telemetry.emit_ui_event(ctx, "changed", {"what": "mission"})
         out: dict[str, Any] = {"mission": mission}
+        # phase12: the yes is what releases spend — the recurring schedules
+        # register here, not at mission_set.
+        out["schedules"] = await _sync_schedules(ctx)
         # routed through the janitor: it holds the once-per-mission claim AND
         # the grandfather guard (a pre-split mission past S0 never re-fires)
         out["deep_kickoff"] = await research.maybe_start_deep_kickoff(ctx, store)
@@ -687,6 +787,8 @@ def register_tools(ctx: PluginContext, store: MissionStore) -> None:
         mission = await store.get()
         if mission is None:
             return {"error": "no active mission — no schedules to sync"}
+        if schedules_gated(mission):
+            return {"schedules": SCHEDULES_GATED_NOTE}
         return {"schedules": await _sync_schedules(ctx)}
 
     defs: list[tuple[ToolDef, Any]] = [
@@ -699,9 +801,10 @@ def register_tools(ctx: PluginContext, store: MissionStore) -> None:
                     "reply text, before any question. This protects their "
                     "words while you ask your single round of discovery "
                     "questions (max 2-3, same reply, only questions whose "
-                    "answers would change your plan). On the owner's NEXT "
-                    "message you save with mission_set — never a second "
-                    "question round; if the owner seems impatient, skip the "
+                    "answers would change your plan). On the owner's next "
+                    "ON-TOPIC message you save with mission_set — never a "
+                    "second question round; a detour reply never triggers "
+                    "the save; if the owner seems impatient, skip the "
                     "questions and call mission_set immediately."
                 ),
                 parameters={
@@ -724,15 +827,16 @@ def register_tools(ctx: PluginContext, store: MissionStore) -> None:
                 name="mission_set",
                 description=(
                     "Adopt a new mission (replaces any active one). Call it "
-                    "when the intake round is done — the owner's next message "
-                    "after your questions, or immediately on any sign of "
-                    "impatience — with the sharpened statement and their "
-                    "verbatim words as origin_statement (auto-filled from "
-                    "your mission_draft if omitted). Writes the "
+                    "when the intake round is done — the owner's next "
+                    "ON-TOPIC message after your questions (never off a "
+                    "detour about something else), or immediately on any "
+                    "sign of impatience — with the sharpened statement and "
+                    "their verbatim words as origin_statement (auto-filled "
+                    "from your mission_draft if omitted). Writes the "
                     "mission into your identity (system prompt), seeds starter "
-                    "wiki pages, registers your recurring research/dream "
-                    "schedules, and posts a quick first-look brief (the deep "
-                    "setup pass waits for mission_confirm). autonomy_rung "
+                    "wiki pages, and posts a quick first-look brief (the deep "
+                    "setup pass AND the recurring research/dream schedules "
+                    "wait for mission_confirm). autonomy_rung "
                     "1-4: how proactively you may act (4 = execute-with-approval; "
                     "unattended execution is a later owner decision, not a rung)."
                 ),
@@ -763,9 +867,10 @@ def register_tools(ctx: PluginContext, store: MissionStore) -> None:
                     "to your brief ('go', 'yes', 'sounds right', 'proceed'). "
                     "Stamps the mission confirmed and starts the DEEP setup "
                     "pass (research, job description, ladder, milestones). "
-                    "Call it the moment the yes lands, in that same turn. If "
-                    "the owner never answers, the deep pass starts by itself "
-                    "after ~12 hours with a note."
+                    "Call it the moment the yes lands, in that same turn. The "
+                    "owner engaging you to start the work counts as a yes. "
+                    "Nothing deep runs until this is called — if the owner "
+                    "stays silent, you wait."
                 ),
                 parameters={"type": "object", "properties": {}},
                 policy="auto_approve",
@@ -952,9 +1057,13 @@ How this stage works:
      one line, plain words — never a feature list). One question, a
      one-phrase why, warm and brief, in your own voice.
 
-  2. MISSION DETECTION: if the owner's message describes work they want
-     owned — even one sentence — that IS the mission, and that turn has
-     a FIXED shape. In order:
+  2. MISSION DETECTION: if the owner's message hands YOU work to own —
+     even one sentence, as long as it is addressed to you as your job —
+     that IS the mission, and that turn has a FIXED shape. Work mentioned
+     in passing while they talk about something else is NOT a mission:
+     stay in their conversation, and if you suspect they meant it for
+     you, ask in one line ("want me to own that?") instead of drafting.
+     When it IS the mission, in order:
         a. call `mission_draft(verbatim=...)` — FIRST action, before
            any reply text, with the owner's words EXACTLY as they wrote
            them. Their words are now safe; nothing can lose them.
@@ -978,8 +1087,11 @@ How this stage works:
      links, repos, docs, metrics, pronouns, or anything that doesn't
      change the plan.
 
-  3. The owner's NEXT message ALWAYS ends intake — no matter how many
-     questions they answered, even none. That turn has a FIXED shape:
+  3. The owner's next ON-TOPIC message ends intake — any engagement with
+     the mission thread, however thin (answers, partial answers, a
+     correction, "just go"). No matter how few questions they answered,
+     engagement means SAVE — never a second question round. That turn
+     has a FIXED shape:
         a. call `mission_set(statement=..., origin_statement=...)` —
            FIRST action, before any reply text. statement = the mission
            sharpened by what you learned; origin_statement = their
@@ -1008,9 +1120,13 @@ How this stage works:
      save NOW (step 3's shape, in that same turn). A saved mission can
      always be refined; a tired owner cannot be un-tired.
 
-  5. If the owner detours, briefly oblige, then renew the mission ask
-     with fresh framing in the same message — it is the one gate
-     between them and a working agent."""
+  5. A DETOUR message — the owner raises something else entirely —
+     NEVER ends intake and is NEVER the mission. Handle it fully and
+     well (their agenda outranks your intake), keep their draft words
+     safe, and close your reply with ONE line renewing the mission
+     thread. Do NOT call mission_set off a detour: hijacking an
+     unrelated reply into a mission save is the one unforgivable
+     intake move — the mission is confirmed, not received."""
 
 
 def _mission_gate_state_block(state_block: str) -> str:
@@ -1027,12 +1143,14 @@ def _mission_gate_state_block(state_block: str) -> str:
         out.append("")
     out += [
         "Missing — required:",
-        "  ☐ mission — the owner's next message may contain it; when it",
-        "    does, capture it VERBATIM with `mission_draft` BEFORE",
-        "    writing your reply, ask at most 2-3 plan-changing questions",
-        "    in that single reply, and on their NEXT message ALWAYS save",
-        "    with `mission_set` (+ `update_self`) — impatience means",
-        "    save immediately, questions dropped.",
+        "  ☐ mission — the owner's next message may contain it (work",
+        "    they hand YOU to own — never work mentioned in passing);",
+        "    when it does, capture it VERBATIM with `mission_draft`",
+        "    BEFORE writing your reply, ask at most 2-3 plan-changing",
+        "    questions in that single reply, and on their next ON-TOPIC",
+        "    message save with `mission_set` (+ `update_self`) —",
+        "    impatience means save immediately, questions dropped; a",
+        "    detour reply never triggers the save.",
         "",
         "The rest of the setup checklist is locked until the mission is",
         "saved; it appears here the moment it is.",
@@ -1132,11 +1250,12 @@ def prompt_fragment(
             "tools, call load_tools(group='curiosity') in that same turn so "
             "it is ready when they reply). Then ask at most 2-3 questions (one round, "
             "one reply — only questions whose answers change your plan), and "
-            "on their NEXT message ALWAYS save with mission_set (sharpened "
+            "on their next ON-TOPIC message save with mission_set (sharpened "
             "statement, origin_statement=their verbatim words) — impatience "
-            "means save immediately. Adopting it seeds your wiki, starts your "
-            "recurring research/dream schedules, and posts a first-look "
-            "brief, and every exchange it waits is a quick win delayed. If "
+            "means save immediately; a detour reply never triggers the save. "
+            "Adopting it seeds your wiki and posts a first-look brief "
+            "(research and recurring schedules wait for the owner's yes), "
+            "and every exchange it waits is a quick win delayed. If "
             "first-run setup is in progress, the adopted mission doubles as "
             "your identity: also save it with update_self(field='mission', "
             "...) right away, then continue the rest of setup. " + rails
@@ -1167,8 +1286,11 @@ def prompt_fragment(
             "for the owner's yes on the direction. The moment any clear yes "
             "lands ('go', 'yes', 'sounds right', 'proceed'), call "
             "mission_confirm in that same turn — it starts your deep setup "
-            "pass. Until then keep work light and redirectable; if they stay "
-            "silent the deep pass proceeds on its own after ~12 hours. "
+            "pass and registers your recurring schedules. The owner engaging "
+            "you to start the work also counts as a yes — call "
+            "mission_confirm then too. Until then keep work light and "
+            "redirectable; if they stay silent you wait — nothing deep runs "
+            "without their yes. "
         )
     base = (
         f"Curiosity: your mission — {mission['statement']} (autonomy rung "

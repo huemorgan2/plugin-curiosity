@@ -107,7 +107,7 @@ KICKOFF_TITLE = "Mission kickoff"
 
 # --- 11.001/M1: the kickoff split. mission_set posts an INSTANT BRIEF -------
 # --- (~3 s, a handful of calls, owner watching); the deep S0→S2 pass waits --
-# --- for mission_confirm, an owner "go", or the 12 h timeout-proceed. -------
+# --- for mission_confirm — an owner "go" — and for NOTHING else (phase12). --
 
 BRIEF_TITLE = "Mission first look"
 
@@ -135,21 +135,35 @@ Reply with three short parts, plain words, your own voice:
    work you could own under this mission, one line each.
 
 Close by asking for their yes: if this direction is right, they say "go"
-and you dig in properly — research, your job description, milestones. Say
-plainly that if they're busy you'll proceed on your own within about half a
-day, so their yes just gets them a say sooner. One short question, warm,
-done.
+and you dig in properly — research, your job description, milestones. Until
+then you stay light and redirectable — nothing deep runs without their yes.
+One short question, warm, done.
 """
 
-# how long an unconfirmed mission waits before the deep pass proceeds anyway
+# how long an unconfirmed mission waits before the ONE re-ask nudge fires.
+# 11.012/phase12: there is NO timeout-proceed anymore — the deep pass runs
+# only on mission_confirm. Silence earns a single re-ask, never a spend
+# (revision-2 Law 1: the mission is confirmed, not received).
 CONFIRM_TIMEOUT_H = 12.0
 
 CONFIRM_NOTE_CONFIRMED = "\nThe owner confirmed the direction — go.\n"
-CONFIRM_NOTE_TIMEOUT = (
-    "\nThe owner never replied to your first-look brief; after "
-    f"{CONFIRM_TIMEOUT_H:.0f} hours you proceed by default. Open your "
-    "artifact by saying so plainly — one line, no guilt — and invite them "
-    "to redirect you at any time.\n"
+
+CONFIRM_NUDGE_TITLE = "Mission awaiting your yes"
+
+CONFIRM_NUDGE_TOOLS = ["mission_get"]
+
+CONFIRM_NUDGE_CONTENT = (
+    "Your mission is saved but the owner never answered your first-look "
+    "brief — the direction is still unconfirmed, and nothing deep runs "
+    "without their yes. This turn is ONE short re-ask and nothing else:\n"
+    "1. mission_get to see the current statement.\n"
+    "2. Reply with at most 4 short lines, plain words, your own voice: "
+    "reflect the mission back in your own words (sharper than it was "
+    "said), ask if you got it right — a simple 'go' starts the real work — "
+    "and make clear they can redirect or reword it at any time.\n"
+    "Do NO research, NO wiki writes, NO goals in this turn. If they stay "
+    "silent, keep waiting — you never proceed on your own; their pane "
+    "shows the pending yes."
 )
 
 # once-per-mission guard for the deep pass, persisted in the Flag register
@@ -508,8 +522,8 @@ async def run_kickoff(
     compact: bool = False,
     confirm_note: str = "",
 ) -> None:
-    """The DEEP kickoff pass (S0→S2). Fired by mission_confirm or the 12 h
-    timeout-proceed — never directly by mission_set anymore (11.001)."""
+    """The DEEP kickoff pass (S0→S2). Fired by mission_confirm only —
+    never directly by mission_set (11.001) and never by a timeout (phase12)."""
     content = _KICKOFF_CONTENT.format(
         statement=statement, wiki_note=_wiki_note(wiki_slug),
         confirm_note=confirm_note,
@@ -644,30 +658,41 @@ def spawn_kickoff(
 
 _deep_claims: set[str] = set()  # in-process dedupe alongside the DB flag
 
+# phase12: the one-time confirm re-ask, same claim+flag shape as the deep pass
+_CONFIRM_NUDGE_FLAG = "confirm_nudge_sent"
+_nudge_claims: set[str] = set()
 
-def _deep_flag_key(mission_id: str) -> str:
-    return f"{_DEEP_KICKOFF_FLAG}:{mission_id}"
 
-
-async def _deep_flag_get(sf, mission_id: str) -> str | None:
+async def flag_get(sf, key: str) -> str | None:
     from .models import Flag
 
     async with sf() as s:
-        row = await s.get(Flag, _deep_flag_key(mission_id))
+        row = await s.get(Flag, key)
         return row.value if row is not None else None
 
 
-async def _deep_flag_set(sf, mission_id: str, value: str) -> None:
+async def flag_set(sf, key: str, value: str) -> None:
     from .models import Flag
 
     async with sf() as s:
-        key = _deep_flag_key(mission_id)
         row = await s.get(Flag, key)
         if row is None:
             s.add(Flag(key=key, value=value))
         else:
             row.value = value
         await s.commit()
+
+
+def _deep_flag_key(mission_id: str) -> str:
+    return f"{_DEEP_KICKOFF_FLAG}:{mission_id}"
+
+
+async def _deep_flag_get(sf, mission_id: str) -> str | None:
+    return await flag_get(sf, _deep_flag_key(mission_id))
+
+
+async def _deep_flag_set(sf, mission_id: str, value: str) -> None:
+    await flag_set(sf, _deep_flag_key(mission_id), value)
 
 
 async def spawn_deep_kickoff_once(
@@ -734,8 +759,9 @@ async def maybe_start_deep_kickoff(ctx: PluginContext, store) -> str:
     """The confirm-gate janitor (on-load + per-turn 'next contact'):
     - a CONFIRMED mission whose deep pass never spawned (process died between
       confirm and spawn) starts it now;
-    - an UNCONFIRMED mission older than CONFIRM_TIMEOUT_H proceeds by
-      default, with the timeout note;
+    - an UNCONFIRMED mission older than CONFIRM_TIMEOUT_H gets ONE muted
+      re-ask nudge — the deep pass NEVER starts without the owner's yes
+      (phase12: the timeout-proceed is gone; it fired unasked on upgrades);
     - a mission already past S0 (or in work phase) predates the split or ran
       its pass — grandfathered, never re-fired."""
     from datetime import UTC as _UTC
@@ -763,7 +789,19 @@ async def maybe_start_deep_kickoff(ctx: PluginContext, store) -> str:
     age_h = (_dt.now(_UTC) - created).total_seconds() / 3600.0
     if age_h < CONFIRM_TIMEOUT_H:
         return "waiting for confirmation"
-    return await spawn_deep_kickoff_once(
-        ctx, sf, mission, compact=await _prefers_compact(ctx),
-        confirm_note=CONFIRM_NOTE_TIMEOUT,
+    nudge_key = f"{_CONFIRM_NUDGE_FLAG}:{mid}"
+    if mid in _nudge_claims or await flag_get(sf, nudge_key) is not None:
+        _nudge_claims.add(mid)
+        return "already nudged"
+    _nudge_claims.add(mid)
+    await flag_set(sf, nudge_key, "sent")
+    result = await ctx.send_muted_message(
+        CONFIRM_NUDGE_TITLE,
+        CONFIRM_NUDGE_CONTENT,
+        channel="moment",
+        source="curiosity",
+        tools=CONFIRM_NUDGE_TOOLS,
     )
+    if isinstance(result, dict) and result.get("error"):
+        log.info("confirm nudge not delivered: %s", result["error"])
+    return "nudged"

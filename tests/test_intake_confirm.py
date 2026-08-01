@@ -1,10 +1,12 @@
-"""Phase11/phase02 (11.001/M1) — intake & confirm:
+"""Phase11/phase12 (11.001/M1, confirmed-not-received) — intake & confirm:
 - mission_draft captures the owner's words verbatim, oldest-wins convergent;
 - mission_set consumes every draft and auto-fills origin_statement;
-- the 24 h draft reaper promotes verbatim through the FULL mission_set path;
-- mission_confirm stamps confirmed_at (idempotent) and releases the deep pass;
-- the kickoff split: mission_set posts an instant BRIEF, the deep S0→S2 pass
-  waits for confirm / the 12 h timeout-proceed, exactly once per mission;
+- the 24 h draft nudger re-asks ONCE and NEVER promotes (phase12);
+- mission_confirm stamps confirmed_at (idempotent), registers the recurring
+  schedules, and releases the deep pass — schedules and the deep S0→S2 pass
+  never fire from mission_set or any timeout;
+- the kickoff split: mission_set posts an instant BRIEF; an unconfirmed
+  mission past 12 h gets ONE re-ask nudge, never an unasked deep pass;
 - prompts and overview surface the gate ("waiting for your yes").
 """
 
@@ -125,7 +127,8 @@ async def test_mission_draft_tool_steers_one_round_then_set(ctx):
     assert r["draft"]["verbatim"] == "run my hiring pipeline"
     nxt = r["next"]
     assert "ONE round" in nxt and "mission_set" in nxt
-    assert "NEXT message" in nxt and "impatience" in nxt.lower()
+    assert "ON-TOPIC message" in nxt and "impatience" in nxt.lower()
+    assert "DETOUR" in nxt  # a reply about something else never saves
     # mission_set rides the deferred "curiosity" tool group (luna 046
     # grouping) — the draft turn must load it or the save turn can't happen
     assert "load_tools(group='curiosity')" in nxt
@@ -149,61 +152,95 @@ def test_gate_flow_draft_first_one_round_impatience():
     assert "mission_draft" in flow and "VERBATIM" in flow.upper()
     assert "AT MOST 2-3" in flow
     assert "ONLY question round" in flow
-    assert "NEXT message ALWAYS ends intake" in flow
+    assert "next ON-TOPIC message ends intake" in flow
     assert "IMPATIENCE OVERRIDES EVERYTHING" in flow
     assert "origin_statement" in flow
+
+
+def test_gate_flow_detection_and_detour_rules():
+    """phase12: detection requires work handed to YOU (never a passing
+    mention), and a detour reply never ends intake or becomes the mission."""
+    flow = mission_mod.MISSION_GATE_FLOW
+    assert "hands YOU work to own" in flow
+    assert "NOT a mission" in flow  # passing mentions
+    assert "DETOUR" in flow
+    assert "confirmed, not received" in flow
 
 
 def test_gate_state_block_names_draft_then_set():
     block = mission_mod._mission_gate_state_block("SETUP STATE:\n  ☐ mission")
     assert "mission_draft" in block and "mission_set" in block
-    assert "2-3" in block and "NEXT message" in block
+    assert "2-3" in block and "ON-TOPIC" in block
+    assert "detour" in block  # a detour reply never triggers the save
 
 
 def test_missionless_fragment_teaches_draft_then_set():
     frag = mission_mod.prompt_fragment(None)
     assert "mission_draft IN THAT SAME TURN" in frag
     assert "origin_statement" in frag
-    assert "NEXT message ALWAYS save" in frag
+    assert "next ON-TOPIC message save" in frag
+    assert "detour" in frag
     assert "first-look" in frag  # promises the brief, not the deep pass
+    # phase12: the fragment must not promise schedules at mission_set
+    assert "wait for the owner's yes" in frag
 
 
-# ---- Unit 3: the 24 h draft reaper ------------------------------------------
+# ---- Unit 3: the 24 h draft nudger (phase12 — never promotes) ---------------
 
 
 @pytest.mark.asyncio
-async def test_reaper_promotes_stale_draft_verbatim_via_full_path(kctx, store, sf):
+async def test_stale_draft_nudges_once_and_never_promotes(kctx, store, sf):
+    mission_mod._draft_nudge_claims.clear()
     await store.draft("watch my competitors and brief me")
     await _backdate_draft(sf, 25)
-    assert await mission_mod.reap_stale_draft(kctx, store) == "promoted"
-    m = await store.get()
-    # verbatim promotion: statement AND origin are the owner's words
-    assert m["statement"] == "watch my competitors and brief me"
-    assert m["origin_statement"] == "watch my competitors and brief me"
-    # full tool path proof: identity write-through + schedules + wiki all fired
-    assert {"mission": "watch my competitors and brief me"} in kctx.config_registry.writes
-    assert kctx.tool_registry.trigger_created
-    assert "mission" in kctx.provider_registry.get("wiki").pages
+    assert await mission_mod.nudge_stale_draft(kctx, store) == "nudged"
+    # NOTHING was created or spent: no mission, no identity write, no
+    # schedules, no wiki — the draft itself stays safe
+    assert await store.get() is None
+    assert (await store.draft_get())["verbatim"] == "watch my competitors and brief me"
+    assert not kctx.config_registry.writes
+    assert not kctx.tool_registry.trigger_created
+    # the one nudge reflects the owner's verbatim words and bans the save
+    nudges = _posts(kctx, mission_mod.DRAFT_NUDGE_TITLE)
+    assert len(nudges) == 1
+    assert "watch my competitors and brief me" in nudges[0]["content"]
+    assert "Do NOT call mission_set" in nudges[0]["content"]
+    assert nudges[0]["tools"] == mission_mod.DRAFT_NUDGE_TOOLS
+    # janitor re-runs (on-load + per-turn) converge on the single nudge
+    assert await mission_mod.nudge_stale_draft(kctx, store) == "already nudged"
+    assert len(_posts(kctx, mission_mod.DRAFT_NUDGE_TITLE)) == 1
 
 
 @pytest.mark.asyncio
-async def test_reaper_leaves_fresh_draft(kctx, store):
+async def test_draft_nudge_flag_survives_process_restart(kctx, store, sf):
+    mission_mod._draft_nudge_claims.clear()
+    await store.draft("owner words")
+    await _backdate_draft(sf, 25)
+    assert await mission_mod.nudge_stale_draft(kctx, store) == "nudged"
+
+    mission_mod._draft_nudge_claims.clear()  # simulate a process restart
+    assert await mission_mod.nudge_stale_draft(kctx, store) == "already nudged"
+    assert len(_posts(kctx, mission_mod.DRAFT_NUDGE_TITLE)) == 1
+
+
+@pytest.mark.asyncio
+async def test_nudger_leaves_fresh_draft(kctx, store):
     await store.draft("fresh words")
-    assert await mission_mod.reap_stale_draft(kctx, store) == "draft fresh"
+    assert await mission_mod.nudge_stale_draft(kctx, store) == "draft fresh"
     assert (await store.draft_get())["verbatim"] == "fresh words"
 
 
 @pytest.mark.asyncio
-async def test_reaper_clears_drafts_when_mission_active(kctx, store):
+async def test_nudger_clears_drafts_when_mission_active(kctx, store):
     await call(kctx, "mission_set", statement="grow signups")
     await store.draft("late rival draft")  # raced in after the set
-    assert await mission_mod.reap_stale_draft(kctx, store) == "cleared 1 draft(s): mission active"
+    assert await mission_mod.nudge_stale_draft(kctx, store) == "cleared 1 draft(s): mission active"
     assert await store.draft_get() is None
 
 
 @pytest.mark.asyncio
-async def test_reaper_noop_without_draft(kctx, store):
-    assert await mission_mod.reap_stale_draft(kctx, store) == "no draft"
+async def test_nudger_noop_without_draft(kctx, store):
+    assert await mission_mod.nudge_stale_draft(kctx, store) == "no draft"
 
 
 # ---- Unit 4: the confirm gate -----------------------------------------------
@@ -225,6 +262,76 @@ async def test_confirmed_at_unset_until_confirm_then_idempotent(kctx, store):
 @pytest.mark.asyncio
 async def test_confirm_without_mission_errors(kctx):
     assert "error" in await call(kctx, "mission_confirm")
+
+
+# ---- Unit 4b: recurring schedules wait for the yes (phase12) ----------------
+
+
+@pytest.mark.asyncio
+async def test_mission_set_registers_no_schedules(kctx, store):
+    r = await call(kctx, "mission_set", statement="grow signups")
+    assert r["schedules"] == mission_mod.SCHEDULES_GATED_NOTE
+    assert kctx.tool_registry.trigger_created == []
+
+
+@pytest.mark.asyncio
+async def test_confirm_registers_schedules(kctx, store):
+    await call(kctx, "mission_set", statement="grow signups")
+    c = await call(kctx, "mission_confirm")
+    assert c["schedules"] != mission_mod.SCHEDULES_GATED_NOTE
+    created = {t["name"] for t in kctx.tool_registry.trigger_created}
+    assert {s["name"] for s in mission_mod.MISSION_SCHEDULES} <= created
+
+
+@pytest.mark.asyncio
+async def test_schedules_sync_tool_gated_until_confirm(kctx, store):
+    await call(kctx, "mission_set", statement="grow signups")
+    r = await call(kctx, "mission_schedules_sync")
+    assert r["schedules"] == mission_mod.SCHEDULES_GATED_NOTE
+    assert kctx.tool_registry.trigger_created == []
+
+
+@pytest.mark.asyncio
+async def test_retract_schedules_withdraws_pre_phase12_registrations(kctx, store):
+    """Upgrade path: a pre-0.20 version registered the recurring triggers at
+    mission_set — on load, while the mission is still unconfirmed, they are
+    withdrawn (they come back whole on mission_confirm)."""
+    await call(kctx, "mission_set", statement="grow signups")
+    # simulate the pre-0.20 registrations
+    for i, s in enumerate(mission_mod.MISSION_SCHEDULES):
+        kctx.tool_registry.existing_triggers.append(
+            {"id": f"old-{i}", "name": s["name"], "target": s["target"],
+             "expr_raw": s["schedule_expr"], "enabled": True}
+        )
+    m = await store.get()
+    assert mission_mod.schedules_gated(m)
+    result = await mission_mod.retract_schedules(kctx)
+    assert result == f"retracted {len(mission_mod.MISSION_SCHEDULES)}"
+    names = {s["name"] for s in mission_mod.MISSION_SCHEDULES}
+    assert all(t["name"] not in names for t in kctx.tool_registry.existing_triggers)
+
+
+@pytest.mark.asyncio
+async def test_schedules_not_gated_once_confirmed_or_past_s0(kctx, store, sf):
+    from sqlalchemy import update
+
+    from plugin_curiosity.models import Mission
+
+    await call(kctx, "mission_set", statement="grow signups")
+    assert mission_mod.schedules_gated(await store.get())
+
+    await call(kctx, "mission_confirm")
+    assert not mission_mod.schedules_gated(await store.get())
+
+    # grandfathered pre-split mission past S0: no confirmed_at, still exempt
+    async with sf() as s:
+        await s.execute(
+            update(Mission).where(Mission.active).values(
+                setup_stage="S1", confirmed_at=None
+            )
+        )
+        await s.commit()
+    assert not mission_mod.schedules_gated(await store.get())
 
 
 @pytest.mark.asyncio
@@ -303,7 +410,9 @@ def test_brief_content_is_instant_and_asks_for_yes():
     assert "What I heard" in text
     assert "First look" in text
     assert "3 things I could do" in text
-    assert "half a" in text  # tells the owner about the timeout-proceed
+    # phase12: no auto-proceed promise anywhere — the yes is the release
+    assert "half a" not in text
+    assert "nothing deep runs without their yes" in text
 
 
 @pytest.mark.asyncio
@@ -334,20 +443,45 @@ async def test_deep_pass_waits_before_timeout(kctx, store):
 
 
 @pytest.mark.asyncio
-async def test_timeout_proceeds_with_note(kctx, store, sf):
+async def test_stale_unconfirmed_mission_nudges_once_never_proceeds(kctx, store, sf):
+    """phase12: the 12 h timeout-proceed is gone — silence earns ONE re-ask
+    nudge and the deep pass waits for mission_confirm forever."""
+    research._nudge_claims.clear()
     await call(kctx, "mission_set", statement="grow signups")
     await _settle()
     kctx.muted_posts.clear()
     await _backdate_mission(sf, 13)
 
-    assert await research.maybe_start_deep_kickoff(kctx, store) == "started"
-    # janitor re-runs (on-load + per-turn) converge on the single spawn
-    assert await research.maybe_start_deep_kickoff(kctx, store) == "already started"
+    assert await research.maybe_start_deep_kickoff(kctx, store) == "nudged"
+    # janitor re-runs (on-load + per-turn) converge on the single nudge
+    assert await research.maybe_start_deep_kickoff(kctx, store) == "already nudged"
     await _settle()
 
-    deeps = _posts(kctx, research.KICKOFF_TITLE)
-    assert len(deeps) == 1
-    assert research.CONFIRM_NOTE_TIMEOUT.strip() in deeps[0]["content"]
+    assert _posts(kctx, research.KICKOFF_TITLE) == []  # deep pass never fired
+    nudges = _posts(kctx, research.CONFIRM_NUDGE_TITLE)
+    assert len(nudges) == 1
+    assert nudges[0]["tools"] == research.CONFIRM_NUDGE_TOOLS
+    assert "never proceed on your own" in nudges[0]["content"]
+
+    # the owner's yes still releases the deep pass after the nudge
+    c = await call(kctx, "mission_confirm")
+    assert c["deep_kickoff"] == "started"
+    await _settle()
+    assert len(_posts(kctx, research.KICKOFF_TITLE)) == 1
+
+
+@pytest.mark.asyncio
+async def test_confirm_nudge_flag_survives_process_restart(kctx, store, sf):
+    research._nudge_claims.clear()
+    await call(kctx, "mission_set", statement="grow signups")
+    await _settle()
+    kctx.muted_posts.clear()
+    await _backdate_mission(sf, 13)
+    assert await research.maybe_start_deep_kickoff(kctx, store) == "nudged"
+
+    research._nudge_claims.clear()  # simulate a process restart
+    assert await research.maybe_start_deep_kickoff(kctx, store) == "already nudged"
+    assert len(_posts(kctx, research.CONFIRM_NUDGE_TITLE)) == 1
 
 
 @pytest.mark.asyncio
@@ -428,8 +562,8 @@ def test_deep_content_carries_confirm_note_and_milestones():
 @pytest.mark.asyncio
 async def test_run_kickoff_formats_confirm_note(kctx):
     await research.run_kickoff(
-        kctx, "grow signups", confirm_note=research.CONFIRM_NOTE_TIMEOUT
+        kctx, "grow signups", confirm_note=research.CONFIRM_NOTE_CONFIRMED
     )
     deeps = _posts(kctx, research.KICKOFF_TITLE)
     assert len(deeps) == 1
-    assert research.CONFIRM_NOTE_TIMEOUT.strip() in deeps[0]["content"]
+    assert research.CONFIRM_NOTE_CONFIRMED.strip() in deeps[0]["content"]

@@ -34,7 +34,7 @@ class Mission(Base):
     statement: Mapped[str] = mapped_column(Text, nullable=False)
     # 11.001/M1: the owner's mission words VERBATIM — the statement above may
     # be the sharpened version; the origin is never lost. confirmed_at gates
-    # the deep kickoff pass (mission_confirm / "go" / 12 h timeout-proceed).
+    # the deep kickoff pass (mission_confirm / "go" — phase12: no timeout).
     origin_statement: Mapped[str] = mapped_column(Text, default="", nullable=False)
     confirmed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

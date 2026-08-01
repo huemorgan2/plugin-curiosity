@@ -57,6 +57,7 @@ async def test_sync_patches_schedule_expr_drift(ctx):
          "enabled": True},
     ]
     await call(ctx, "mission_set", statement="grow signups")
+    await call(ctx, "mission_confirm")  # phase12: schedules sync on the yes
     (updated,) = [u for u in ctx.tool_registry.trigger_updated if u["id"] == "trg-dream"]
     assert updated["schedule_expr"] == "every day at 02:00"
     assert "target" not in updated
@@ -71,6 +72,7 @@ def fresh_onload_guard(monkeypatch):
 @pytest.mark.asyncio
 async def test_sync_on_load_refreshes_existing_mission(ctx, store):
     await store.set("grow signups")
+    await store.confirm()  # phase12: only a confirmed mission syncs on load
     ctx.tool_registry.existing_triggers = [
         {"id": "trg-dream", "name": "curiosity-nightly-dream",
          "target": "old placeholder", "expr_raw": "every day at 03:30",
@@ -100,6 +102,7 @@ async def test_on_load_work_scheduled_once_per_loop(ctx, store):
     """Both call sites (on_load + the routes startup hook) can fire on the
     same loop — the second must be a no-op or the drain could double-post."""
     await store.set("grow signups")
+    await store.confirm()  # phase12: only a confirmed mission syncs on load
     ctx.tool_registry.existing_triggers = [
         {"id": "trg-dream", "name": "curiosity-nightly-dream",
          "target": "old placeholder", "expr_raw": "every day at 03:30",

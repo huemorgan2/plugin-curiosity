@@ -260,13 +260,14 @@ async def test_sync_schedules_passes_provenance_to_new_scheduler(store, sf):
     reg = SchedulerRegistry03()
     ctx = _ctx(store, sf, wiki=MultiWikiProvider(), tool_registry=reg)
     await call(ctx, "mission_set", statement="grow signups")
+    await call(ctx, "mission_confirm")  # phase12: schedules sync on the yes
     assert len(reg.trigger_created) == len(MISSION_SCHEDULES)
     for kw in reg.trigger_created:
         assert kw["unique_name"] is True
         assert kw["created_by"] == "plugin-curiosity"
         assert kw["purpose"]  # every MISSION_SCHEDULES spec carries one
     # re-sync converges without duplicates (list-before-create still on)
-    await call(ctx, "mission_set", statement="grow signups")
+    await call(ctx, "mission_schedules_sync")
     assert len(reg.trigger_created) == len(MISSION_SCHEDULES)
 
 
@@ -277,6 +278,7 @@ async def test_sync_schedules_old_scheduler_gets_no_new_kwargs(store, sf):
     reg = FakeToolRegistry()  # 0.2.x shape: **kw-free explicit old signature
     ctx = _ctx(store, sf, wiki=MultiWikiProvider(), tool_registry=reg)
     await call(ctx, "mission_set", statement="grow signups")
+    await call(ctx, "mission_confirm")  # phase12: schedules sync on the yes
     assert len(reg.trigger_created) == len(MISSION_SCHEDULES)
     for kw in reg.trigger_created:
         assert "unique_name" not in kw
