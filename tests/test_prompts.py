@@ -12,7 +12,11 @@ from plugin_curiosity.prompts import (
     TALENTED_HIRE_LAW,
     WORK_WEEKLY_TITLE,
 )
-from plugin_curiosity.research import _KICKOFF_CONTENT, DAILY_RESEARCH_TARGET
+from plugin_curiosity.research import (
+    _KICKOFF_CONTENT,
+    _PLAN_EXEC_CONTENT,
+    DAILY_RESEARCH_TARGET,
+)
 from plugin_curiosity.review import WEEKLY_REVIEW_TARGET
 
 MISSION = {"statement": "grow signups", "autonomy_rung": 2, "risk_ceiling": "low"}
@@ -20,7 +24,8 @@ MISSION = {"statement": "grow signups", "autonomy_rung": 2, "risk_ceiling": "low
 
 def test_shared_lines_exactly_once_per_surface():
     assert _KICKOFF_CONTENT.count(TALENTED_HIRE_LAW) == 1
-    assert _KICKOFF_CONTENT.count(ASK_SHAPE) == 1
+    # phase14: access-ask vocabulary rides the recurring surfaces; the
+    # planning pass makes no asks (its only ask is the owner's OK)
     assert DAILY_RESEARCH_TARGET.count(ASK_SHAPE) == 1
     assert WEEKLY_REVIEW_TARGET.count(ASK_SHAPE) == 1
     assert DAILY_RESEARCH_TARGET.count(LOOP_DISCIPLINE) == 1
@@ -28,21 +33,40 @@ def test_shared_lines_exactly_once_per_surface():
     assert frag_setup.count(TALENTED_HIRE_LAW) == 1
 
 
-def test_kickoff_setup_arc_shape():
+def test_planning_pass_shape():
+    """phase14: the planning pass researches and writes the numbered plan —
+    it never scaffolds and never approves its own plan."""
     t = _KICKOFF_CONTENT
-    # S0: sharper restatement, plan-changing questions as loops, no asks
-    assert "SHARPER" in t and "plan-changing questions" in t
+    assert "SHARPER" in t
+    assert "get_plugin_status" in t
+    assert "never assume a capability exists" in t.lower() or "never assume" in t
+    assert "setup_plan_open" in t
+    assert "nothing here runs until your OK" in t
+    assert "Do NOT call setup_plan_approve" in t
+    assert "Silence is never a yes" in t
+    # the artifact points at the numbered plan, not at built scaffolding
+    assert "**The plan**" in t
+    # no scaffolding orders left on this surface
+    for banned in ("scope_set", "goal_set(", "ability_upsert", "stage_set('S2')",
+                   "trigger_create"):
+        assert banned not in t, banned
+
+
+def test_execution_pass_shape():
+    """phase14: the execution pass starts at the gate, builds exactly the
+    plan, and always leaves the numbered summary."""
+    t = _PLAN_EXEC_CONTENT
+    assert t.strip().find("setup_plan_start() FIRST") > 0
+    assert "plan-changing questions" in t
     assert "loop_open(kind='question')" in t
     assert "ZERO access asks" in t
-    # S1: charter all seven kinds, timebox language, canonical example
-    assert "ALL seven kinds" in t and "workflow_approval" in t
-    assert "stub/summary wiki depth" in t and "NO deep corpus" in t
+    assert "seven kinds" in t
     assert "WRONG: 'connect me to AdWords" in t
-    # S2: milestone commit + ratification line — kickoff only (11.001/M1:
-    # dated-goal batch replaced by 3-5 owner-readable milestones)
-    assert "3-5 MILESTONES" in t and "readiness" in t
-    assert "push back now" in t
+    assert "readiness" in t
     assert "stage_set('S2')" in t
+    assert "ALWAYS" in t and "{summary_slug}" in t
+    assert "setup_plan_close" in t
+    assert "NEVER executed before" in t
 
 
 def test_daily_is_phase_branched():
@@ -111,9 +135,10 @@ def test_anti_patterns_absent():
     for surface in (_KICKOFF_CONTENT, DAILY_RESEARCH_TARGET, WEEKLY_REVIEW_TARGET,
                     prompt_fragment(MISSION, "setup"), prompt_fragment(MISSION, "work")):
         assert "work quietly" not in surface
-    # never end on homework for the owner
+    # never end on homework for the owner (phase14: the owner-facing reply
+    # closes the EXECUTION pass; the planning pass rightly ends on the OK ask)
     assert "never on homework" in DAILY_RESEARCH_TARGET
-    assert "NEVER end on a list of suggestions" in _KICKOFF_CONTENT
+    assert "NEVER end on a list of suggestions" in _PLAN_EXEC_CONTENT
 
 
 def test_prompt_budget_sanity():
@@ -181,9 +206,13 @@ def test_prompt_budget_sanity():
     # incident handling is exactly what a prompt must pin — the alternative
     # is an agent that fixes quietly and reports after discovery.
     # 0.13.0: an unconfirmed mission carries the confirm-gate line (~350 chars)
-    assert len(prompt_fragment(MISSION, "setup")) < 18300
+    # 0.23.0 (phase14) raised the setup branch: the plan-ledger doctrine
+    # (numbered plans, the owner's OK before every execution, numbered
+    # summaries) rides every setup surface — the core issue this phase
+    # closed was the agent setting itself up unasked. Work stays lean.
+    assert len(prompt_fragment(MISSION, "setup")) < 20000
     wiki_bound = dict(MISSION, wiki_id="grow-signups-abc123")
-    assert len(prompt_fragment(wiki_bound, "setup")) < 18500
+    assert len(prompt_fragment(wiki_bound, "setup")) < 20200
     assert len(prompt_fragment(wiki_bound, "work")) < 10500
 
 

@@ -31,6 +31,7 @@ from sqlalchemy import select, text as _sql
 
 from luna_sdk import PluginContext, ToolDef
 
+from . import gating
 from .models import FeedbackNote, Mission, OwnerDecision
 
 log = logging.getLogger("plugin-curiosity")
@@ -668,4 +669,4 @@ def register_tools(ctx: PluginContext, store: FeedbackStore) -> None:
         ),
     ]
     for tool_def, handler in defs:
-        ctx.tool_registry.register("plugin-curiosity", tool_def, handler)
+        ctx.tool_registry.register("plugin-curiosity", gating.stamp_group(tool_def), handler)

@@ -531,6 +531,49 @@ class Proposal(Base):
     )
 
 
+class SetupPlan(Base):
+    """One numbered setup plan (phase14: plan, ask, then act).
+
+    Setup executes ONLY through this ledger: the agent drafts a numbered
+    plan (`setup-plans/001-<name>` in the mission wiki), the owner's
+    explicit OK approves it, an execution pass runs it, and every
+    execution — success or failure — closes against an execution-summary
+    page at `summary_slug`. `seq` numbers plans per mission (rendered
+    001, 002, …); every amendment or retry is a NEW row, so the whole
+    history stays visible. `status`: draft → approved → executing →
+    done|failed; a draft replaced before approval becomes superseded."""
+
+    __tablename__ = "curiosity_setup_plans"
+
+    id: Mapped[_uuid.UUID] = mapped_column(UUID(), primary_key=True, default=_uuid.uuid4)
+    mission_id: Mapped[_uuid.UUID] = mapped_column(UUID(), nullable=False, index=True)
+    seq: Mapped[int] = mapped_column(Integer, nullable=False)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    slug: Mapped[str] = mapped_column(String(256), nullable=False)
+    summary_slug: Mapped[str] = mapped_column(String(256), nullable=False)
+    objective: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16), default="draft", nullable=False, index=True
+    )
+    decision_note: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    outcome_note: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    approved_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    closed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+
 class Flag(Base):
     """Tiny key/value state register (phase 8.1: `install_kickoff_sent`)."""
 
@@ -560,6 +603,7 @@ ALL_TABLES = (
     NextStep.__table__,
     Automation.__table__,
     Proposal.__table__,
+    SetupPlan.__table__,
     Flag.__table__,
 )
 

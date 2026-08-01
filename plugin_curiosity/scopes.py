@@ -487,12 +487,18 @@ async def ensure_charter_mirror(ctx: PluginContext, store: ScopeStore) -> str:
     return await _mirror_to_wiki(ctx, store)
 
 
-def register_tools(ctx: PluginContext, store: ScopeStore) -> None:
+def register_tools(ctx: PluginContext, store: ScopeStore, plan_gate=None) -> None:
+    """plan_gate (phase14, wired only by _activate): an async callable that
+    returns None (allowed) or a refusal dict — scope_set and stage_set are
+    CREATE-side scaffolding and run only inside an owner-approved executing
+    plan while a setup mission is still at S0. Updates stay open."""
     from . import telemetry
 
     async def _set(
         kind: str, name: str, why: str = "", ability_id: str | None = None
     ) -> dict[str, Any]:
+        if plan_gate is not None and (refusal := await plan_gate()):
+            return refusal
         try:
             scope = await store.add(kind, name, why=why, ability_id=ability_id)
         except ValueError as e:
@@ -532,6 +538,8 @@ def register_tools(ctx: PluginContext, store: ScopeStore) -> None:
         return {"state": state, "scopes": scopes}
 
     async def _stage(stage: str) -> dict[str, Any]:
+        if plan_gate is not None and (refusal := await plan_gate()):
+            return refusal
         try:
             result = await store.stage_set(stage)
         except ValueError as e:

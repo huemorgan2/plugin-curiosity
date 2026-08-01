@@ -318,15 +318,18 @@ async def test_heartbeat_report_reaps_duplicates(sf, store, ctx):
 
 
 def test_contract_single_creator_clause():
-    """The race fix's prompt half: creation belongs to the kickoff (and the
-    recreate nudge) alone; conversation turns may only update."""
+    """The race fix's prompt half: creation belongs to the plan-execution
+    turn (phase14 — formerly the kickoff) and the recreate nudge alone;
+    conversation turns may only update."""
     from plugin_curiosity.prompts import HEARTBEAT_CONTRACT
-    from plugin_curiosity.research import _KICKOFF_CONTENT
+    from plugin_curiosity.research import _KICKOFF_CONTENT, _PLAN_EXEC_CONTENT
 
-    assert "born ONLY in your kickoff" in HEARTBEAT_CONTRACT
+    assert "born ONLY in your plan-execution turn" in HEARTBEAT_CONTRACT
     assert "NEVER create it in an ordinary conversation" in HEARTBEAT_CONTRACT
     assert "reaped automatically" in HEARTBEAT_CONTRACT
-    assert "THIS step is where it is born" in _KICKOFF_CONTENT
+    assert "born HERE" in _PLAN_EXEC_CONTENT
+    # the planning pass never creates it
+    assert "trigger_create" not in _KICKOFF_CONTENT
 
 
 @pytest.mark.asyncio
@@ -461,9 +464,9 @@ async def test_overview_contract(sf, ctx, store):
     # needs-from-you: the owner question + the S2 ratify CTA
     kinds = [n["kind"] for n in o["needs_from_you"]]
     assert "question" in kinds and "approve" in kinds
-    # wiki shelf lists all 10 slugs (10.001 adds job-description) and
-    # tolerates missing pages
-    assert len(o["wiki_shelf"]) == 10
+    # wiki shelf lists all 11 slugs (10.001 adds job-description; phase14
+    # adds setup-plans) and tolerates missing pages
+    assert len(o["wiki_shelf"]) == 11
     assert all("exists" in p for p in o["wiki_shelf"])
     assert any(a["kind"] == "heartbeat" for a in o["activity"])
     assert any(n["kind"] == "stage" for n in o["next_up"])

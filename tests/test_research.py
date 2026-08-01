@@ -43,9 +43,10 @@ async def test_deep_kickoff_artifact_shape(ctx):
     assert post["channel"] == "moment"
     assert post["source"] == "curiosity"
     assert "grow signups" in post["content"]
-    # the artifact shape is instructed (phase 10 setup arc): brief + job
-    # description + ladder + milestones + open questions
-    for marker in ("Brief", "My job description", "My ladder", "My milestones", "Open questions"):
+    # the artifact shape is instructed (phase14 planning pass): brief +
+    # findings + job description + success + the numbered plan + the OK ask
+    for marker in ("Brief", "What I found", "My job description",
+                   "What success looks like", "The plan", "What I need from you"):
         assert marker in post["content"]
 
 

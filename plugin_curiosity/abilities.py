@@ -27,6 +27,7 @@ from sqlalchemy import select
 
 from luna_sdk import PluginContext, ToolDef
 
+from . import gating
 from .models import Ability, AbilityTask, Mission
 
 log = logging.getLogger("plugin-curiosity")
@@ -264,7 +265,10 @@ class AbilityStore:
             return {"abilities": abilities, "setup_percent": setup_percent(abilities)}
 
 
-def register_tools(ctx: PluginContext, store: AbilityStore) -> None:
+def register_tools(ctx: PluginContext, store: AbilityStore, plan_gate=None) -> None:
+    """plan_gate (phase14, wired only by _activate): ability_upsert is
+    CREATE-side scaffolding — inside an owner-approved executing plan only
+    while a setup mission is still at S0. ability_task_set stays open."""
     from . import telemetry
 
     async def _upsert(
@@ -274,6 +278,8 @@ def register_tools(ctx: PluginContext, store: AbilityStore) -> None:
         status: str | None = None,
         sort_order: int | None = None,
     ) -> dict[str, Any]:
+        if plan_gate is not None and (refusal := await plan_gate()):
+            return refusal
         try:
             ability = await store.upsert(
                 title, why=why, tasks=tasks, status=status, sort_order=sort_order
@@ -410,4 +416,4 @@ def register_tools(ctx: PluginContext, store: AbilityStore) -> None:
         ),
     ]
     for tool_def, handler in defs:
-        ctx.tool_registry.register("plugin-curiosity", tool_def, handler)
+        ctx.tool_registry.register("plugin-curiosity", gating.stamp_group(tool_def), handler)

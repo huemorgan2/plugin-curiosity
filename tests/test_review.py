@@ -203,16 +203,24 @@ async def test_agent_facing_kinds_are_guarded(ctx, monkeypatch):
 
 
 def test_mission_kickoff_commits_goals_and_scans_reach():
+    # phase14 split: the PLANNING pass scans capabilities and reach (and
+    # cannot commit anything); the EXECUTION pass commits the goals.
+    from plugin_curiosity.research import _PLAN_EXEC_CONTENT, PLAN_EXEC_TOOLS
+
     t = _KICKOFF_CONTENT
-    assert "goal_set" in t and "COMMIT" in t
-    assert "My milestones" in t and "Next move" in t
     assert "marketplace_search" in t
     assert "wa_status" in t and "connector_list_connected" in t
-    # ends on Luna's action, never on homework for the owner
-    assert "NEVER end on a list of suggestions" in t
-    for tool in ("goal_set", "goal_list", "marketplace_search", "wa_status",
+    assert "get_plugin_status" in t
+    for tool in ("get_plugin_status", "marketplace_search", "wa_status",
                  "connector_list_connected"):
         assert tool in KICKOFF_TOOLS
+    assert "goal_set" not in KICKOFF_TOOLS  # planning cannot commit
+    e = _PLAN_EXEC_CONTENT
+    assert "goal_set" in e
+    # ends on Luna's action, never on homework for the owner
+    assert "NEVER end on a list of suggestions" in e
+    for tool in ("goal_set", "goal_list", "marketplace_search"):
+        assert tool in PLAN_EXEC_TOOLS
 
 
 def test_daily_pass_works_the_ledger_and_reports():

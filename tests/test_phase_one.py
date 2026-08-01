@@ -22,10 +22,11 @@ from plugin_curiosity.prompts import (
 )
 from plugin_curiosity.research import (
     _KICKOFF_CONTENT,
+    _PLAN_EXEC_CONTENT,
     DAILY_RESEARCH_TARGET,
     HEARTBEAT_NUDGE_CONTENT,
     INSTALL_KICKOFF_CONTENT,
-    KICKOFF_TOOLS,
+    PLAN_EXEC_TOOLS,
 )
 from plugin_curiosity.review import WEEKLY_REVIEW_TARGET
 
@@ -51,16 +52,18 @@ def test_doctrine_on_every_setup_surface_and_only_there():
 
 def test_stage_ladder_single_sourced():
     # ONE definition of the ladder, interpolated everywhere it appears
+    # (phase14: the ladder rides the EXECUTION pass — the planning pass
+    # builds nothing, so it carries the plan doctrine instead)
     assert "S3 approved" in SETUP_STAGE_DEFS
     assert "success-criteria" in SETUP_STAGE_DEFS
-    for surface in (_KICKOFF_CONTENT, WEEKLY_REVIEW_TARGET,
+    for surface in (_PLAN_EXEC_CONTENT, WEEKLY_REVIEW_TARGET,
                     prompt_fragment(MISSION, "setup")):
         assert SETUP_STAGE_DEFS in surface
 
 
 def test_next_touch_and_ratification_forcing_ride_setup_surfaces():
     setup_frag = prompt_fragment(MISSION, "setup")
-    for surface in (_KICKOFF_CONTENT, DAILY_RESEARCH_TARGET, setup_frag):
+    for surface in (_PLAN_EXEC_CONTENT, DAILY_RESEARCH_TARGET, setup_frag):
         assert NEXT_TOUCH_RULE in surface
     for surface in (DAILY_RESEARCH_TARGET, WEEKLY_REVIEW_TARGET, setup_frag):
         assert RATIFICATION_FORCING in surface
@@ -71,16 +74,19 @@ def test_owner_legibility_two_phase_story():
     assert "QUALIFIED" in prompt_fragment(None)
     assert "QUALIFIED" in INSTALL_KICKOFF_CONTENT
     assert "**What success looks like**" in _KICKOFF_CONTENT
-    assert "**Where I am**" in _KICKOFF_CONTENT
+    # phase14: the planning artifact ends on the plan + the OK ask
+    assert "**The plan**" in _KICKOFF_CONTENT
+    assert "**What I need from you**" in _KICKOFF_CONTENT
 
 
 # ---------------------------------------------------------------- heartbeat
 
 def test_heartbeat_contract_surfaces():
-    # kickoff step creates the trigger; the contract rides kickoff + fragment
-    assert HEARTBEAT_CONTRACT in _KICKOFF_CONTENT
+    # phase14: the EXECUTION pass creates the trigger (as an approved-plan
+    # step); the contract rides that pass + the fragment
+    assert HEARTBEAT_CONTRACT in _PLAN_EXEC_CONTENT
     assert HEARTBEAT_CONTRACT in prompt_fragment(MISSION, "setup")
-    assert "trigger_create" in KICKOFF_TOOLS and "trigger_list" in KICKOFF_TOOLS
+    assert "trigger_create" in PLAN_EXEC_TOOLS and "trigger_list" in PLAN_EXEC_TOOLS
     # convergence is mandatory, not advisory
     assert "convergence criterion" in HEARTBEAT_CONTRACT
     assert "5 consecutive" in HEARTBEAT_CONTRACT
@@ -88,7 +94,7 @@ def test_heartbeat_contract_surfaces():
     # chat turn and the kickoff turn both carry a create instruction)
     assert "EXACTLY ONE" in HEARTBEAT_CONTRACT
     assert "trigger_list" in HEARTBEAT_CONTRACT
-    assert "trigger_list first" in _KICKOFF_CONTENT
+    assert "trigger_list\n     first" in _PLAN_EXEC_CONTENT or "trigger_list first" in _PLAN_EXEC_CONTENT
     # daily recreates a missing heartbeat by canonical name; weekly audits it
     assert HEARTBEAT_NAME in DAILY_RESEARCH_TARGET
     assert HEARTBEAT_NAME in WEEKLY_REVIEW_TARGET
@@ -112,8 +118,16 @@ async def test_heartbeat_exists_tristate(ctx):
 
 @pytest_asyncio.fixture
 async def nctx(ctx, sf, store):
-    """ctx wired for maybe_nudge_heartbeat: mission in setup phase."""
+    """ctx wired for maybe_nudge_heartbeat: mission in setup phase, past S0
+    (phase14: at S0 the heartbeat is legitimately unborn — it arrives as an
+    approved-plan step — so the net stays silent there)."""
     await store.set("own the weekly newsletter end to end")
+    from plugin_curiosity.models import Mission
+
+    async with sf() as s:
+        m = (await s.execute(select(Mission))).scalars().one()
+        m.setup_stage = "S1"
+        await s.commit()
     ctx.db_session_factory = sf
     return ctx
 
@@ -161,6 +175,23 @@ async def test_nudge_skips_when_heartbeat_present_unknowable_or_work(nctx, sf):
     nctx.tool_registry.scheduler_installed = True
     await _set_phase(sf, "work")
     assert await maybe_nudge_heartbeat(nctx, sstore) is False
+    assert nctx.muted_posts == []
+
+
+@pytest.mark.asyncio
+async def test_nudge_suppressed_at_s0(nctx, sf):
+    """phase14: before the first plan execution (S0) there is legitimately
+    no heartbeat — nudging would tell the agent to scaffold outside the
+    owner-approved plan ledger."""
+    from plugin_curiosity import maybe_nudge_heartbeat
+    from plugin_curiosity.models import Mission
+    from plugin_curiosity.scopes import ScopeStore
+
+    async with sf() as s:
+        m = (await s.execute(select(Mission))).scalars().one()
+        m.setup_stage = "S0"
+        await s.commit()
+    assert await maybe_nudge_heartbeat(nctx, ScopeStore(sf)) is False
     assert nctx.muted_posts == []
 
 

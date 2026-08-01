@@ -114,6 +114,9 @@ _STUB_SLUGS = (
     # where it lives (feedback.py rebuilds it on every decision/feedback
     # mutation); the audit trail feedback gets reconciled against.
     "owner-decisions",
+    # phase14: the numbered setup-plan ledger index (planning.py rebuilds it
+    # on every plan mutation) — every plan, its status, its summary.
+    "setup-plans",
 )
 
 
@@ -1280,6 +1283,7 @@ def prompt_fragment(
     phase: str | None = None,
     slot_mode: bool = False,
     draft: dict[str, Any] | None = None,
+    plan: dict[str, Any] | None = None,
 ) -> str:
     """The curiosity capability note. With a mission: own it + the rails,
     plus the phase posture (9C — setup: the talented hire earning autonomy;
@@ -1292,7 +1296,12 @@ def prompt_fragment(
 
     draft (phase13): the captured intake draft, when missionless. With one,
     the fragment must NOT re-issue the capture/ask instructions — the
-    question round is spent and the only remaining move is the save."""
+    question round is spent and the only remaining move is the save.
+
+    plan (phase14): the current setup plan (draft/approved/executing), when
+    one exists — the fragment states the ledger position so every chat turn
+    knows whether setup may run (only while a plan is EXECUTING) and what
+    the next ledger move is."""
     rails = (
         "Action rails: schedule recurring work with the trigger_* tools (the "
         "clock is external and always-on). When you notice a repeatable action, "
@@ -1404,18 +1413,58 @@ def prompt_fragment(
             "Your mission is saved but NOT yet confirmed — you are waiting "
             "for the owner's yes on the direction. The moment any clear yes "
             "lands ('go', 'yes', 'sounds right', 'proceed'), call "
-            "mission_confirm in that same turn — it starts your deep setup "
-            "pass and registers your recurring schedules. The owner engaging "
+            "mission_confirm in that same turn — it starts your PLANNING "
+            "pass (research plus a numbered setup plan for their review; "
+            "nothing executes from it without their separate OK) and "
+            "registers your recurring schedules. The owner engaging "
             "you to start the work also counts as a yes — call "
             "mission_confirm then too. Until then keep work light and "
             "redirectable; if they stay silent you wait — nothing deep runs "
             "without their yes. "
+        )
+    # phase14: the ledger position — every chat turn knows whether setup may
+    # run and what the next ledger move is. Only meaningful at the gate (an
+    # S0 setup mission); past-S0 missions predate or finished the ledger arc.
+    plan_line = ""
+    if at_gate and plan is not None:
+        label = plan.get("label", "?")
+        status = plan.get("status")
+        if status == "draft":
+            plan_line = (
+                f"Setup plan {label} is a DRAFT on the owner's desk at "
+                f"[[{plan['slug']}]] — NOTHING in it executes until their "
+                "explicit OK lands in chat; then call setup_plan_approve "
+                "with their words verbatim (it starts the execution pass). "
+                "Silence is never a yes. If they ask for changes, write the "
+                "next numbered plan with setup_plan_open instead. "
+            )
+        elif status == "approved":
+            plan_line = (
+                f"Setup plan {label} is APPROVED — the owner's OK is "
+                "recorded and its execution pass is starting; do not "
+                "re-open, re-approve, or hand-execute it in chat. "
+            )
+        elif status == "executing":
+            plan_line = (
+                f"Setup plan {label} is EXECUTING — the execution turn "
+                "builds exactly what the plan says and always leaves "
+                f"[[{plan['summary_slug']}]]. Anything new goes in the NEXT "
+                "numbered plan, after a fresh owner OK. "
+            )
+    elif at_gate and mission.get("confirmed_at"):
+        plan_line = (
+            "No setup plan is on the desk yet — your setup runs on NUMBERED "
+            "owner-approved plans, never on your own judgment: your planning "
+            "pass researches Luna's real capabilities (get_plugin_status), "
+            "writes plan 001 to the wiki, and ASKS; execution waits for the "
+            "owner's OK. "
         )
     base = (
         f"Curiosity: your mission — {mission['statement']} (autonomy rung "
         f"{mission['autonomy_rung']}/4, risk ceiling {mission['risk_ceiling']}). "
         + wiki_line
         + confirm_line
+        + plan_line
         + prompts.OWNER_WORDS + " "
         "You OWN this mission and you are relentless about it: you keep a goal "
         "ledger ([[mission-goals]] — goal_set / goal_update / goal_list), you "
@@ -1467,6 +1516,9 @@ def prompt_fragment(
         posture = (
             prompts.PHASE_ONE_DOCTRINE + " "
             + prompts.FDE_DOCTRINE + " "
+            # phase14: the plan ledger doctrine rides right behind the FDE
+            # stance — setup runs on numbered, owner-approved plans.
+            + prompts.PLAN_LEDGER_RULE + " "
             + prompts.TALENTED_HIRE_LAW + " "
             "Corollary: work in small, redirectable increments — stub/summary "
             "depth until the owner approves your job description, so a pivot "

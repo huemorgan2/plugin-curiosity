@@ -555,8 +555,11 @@ async def test_grandfathered_mission_shows_no_confirm_gate(kctx, store, sf):
 def test_deep_content_carries_confirm_note_and_milestones():
     text = research._KICKOFF_CONTENT
     assert "{confirm_note}" in text
+    # phase14: the milestones are planned here (written into the numbered
+    # plan page), committed later in the owner-approved execution pass
     assert "MILESTONES" in text
     assert "3-5" in text
+    assert "goal_set" in research._PLAN_EXEC_CONTENT
 
 
 @pytest.mark.asyncio

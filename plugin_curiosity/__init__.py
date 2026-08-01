@@ -61,6 +61,7 @@ from . import (
     loops,
     mission,
     next_steps,
+    planning,
     proposals,
     research,
     scopes,
@@ -81,6 +82,7 @@ from .mission import (
 )
 from .models import ALL_TABLES, Flag, apply_additive_migrations
 from .next_steps import NextStepStore
+from .planning import PlanStore
 from .proposals import ProposalStore
 from .scopes import ScopeStore
 from .telemetry import HeartbeatStore
@@ -269,6 +271,11 @@ async def maybe_nudge_heartbeat(ctx: PluginContext, scope_store: ScopeStore) -> 
     state = await scope_store.state()
     if state is None or state.get("agent_phase") != "setup":
         return False
+    # phase14: before the first plan execution (setup_stage still S0) there
+    # is legitimately no heartbeat — it is born as an approved-plan step;
+    # nudging earlier would tell the agent to scaffold outside the ledger.
+    if state.get("setup_stage") in (None, "S0"):
+        return False
     if await research.heartbeat_exists(ctx) is not False:
         return False  # exists, or unknowable — either way, no nudge
     if not callable(getattr(ctx, "send_muted_message", None)):
@@ -379,7 +386,8 @@ def schedule_on_load_work(
         except Exception:  # noqa: BLE001
             log.warning("draft nudge on load failed", exc_info=True)
         try:
-            result = await research.maybe_start_deep_kickoff(ctx, store)
+            plan_store = _plugin._plans if _plugin is not None else None
+            result = await research.maybe_start_deep_kickoff(ctx, store, plan_store)
             if result in ("started", "nudged"):
                 log.info("confirm-gate janitor on load: %s", result)
         except Exception:  # noqa: BLE001
@@ -481,7 +489,7 @@ if "prompt_overrides" in getattr(PluginManifest, "model_fields", {}):
 class CuriosityPlugin(LunaPlugin):
     manifest = PluginManifest(
         name="plugin-curiosity",
-        version="0.22.0",
+        version="0.23.0",
         description=(
             "Mission-driven curiosity: research, wiki-building, nightly dreams, "
             "self-set goals, weekly mission reviews, proactive reflections, and "
@@ -518,6 +526,7 @@ class CuriosityPlugin(LunaPlugin):
         self._next_steps: NextStepStore | None = None
         self._automations: AutomationStore | None = None
         self._proposals: ProposalStore | None = None
+        self._plans: PlanStore | None = None
         self._reflections: comms.ReflectionLog | None = None
         self._ctx: PluginContext | None = None
         self._activated = False
@@ -542,6 +551,7 @@ class CuriosityPlugin(LunaPlugin):
         self._next_steps = NextStepStore(ctx.db_session_factory)
         self._automations = AutomationStore(ctx.db_session_factory)
         self._proposals = ProposalStore(ctx.db_session_factory)
+        self._plans = PlanStore(ctx.db_session_factory)
         self._reflections = comms.ReflectionLog(ctx.db_session_factory)
         self._ctx = ctx
         _plugin = self
@@ -600,10 +610,18 @@ class CuriosityPlugin(LunaPlugin):
             except Exception:  # noqa: BLE001
                 log.warning("stale-tool sweep failed", exc_info=True)
         register_tools(ctx, self._store)
-        goals.register_tools(ctx, self._goals, mission_store=self._store)
-        scopes.register_tools(ctx, self._scopes)
+        # phase14: the scaffolding gate — while a setup mission is at S0, the
+        # CREATE tools run only inside an owner-approved EXECUTING plan.
+        # Wired here only, so module tests keep their ungated handlers.
+        plan_gate = planning.execution_gate(self._store, self._plans)
+        goals.register_tools(
+            ctx, self._goals, mission_store=self._store, plan_gate=plan_gate
+        )
+        scopes.register_tools(ctx, self._scopes, plan_gate=plan_gate)
         loops.register_tools(ctx, self._loops)
-        abilities.register_tools(ctx, self._abilities)
+        abilities.register_tools(ctx, self._abilities, plan_gate=plan_gate)
+        # phase14: the numbered setup-plan ledger — open/approve/start/close
+        planning.register_tools(ctx, self._plans, self._store)
         comms.register_tools(ctx, self._reflections, proposals=self._proposals)
         telemetry.register_tools(ctx, self._heartbeats)
         feedback.register_tools(ctx, self._feedback)
@@ -636,7 +654,7 @@ class CuriosityPlugin(LunaPlugin):
                 hooks.register("prompt.assemble", self._occupy_prompt, priority=60)
             except Exception:  # noqa: BLE001
                 log.warning("prompt.assemble registration failed", exc_info=True)
-        log.info("plugin-curiosity loaded (tools=28)")
+        log.info("plugin-curiosity loaded (tools=33)")
 
     def _register_config_section(self, ctx: PluginContext) -> None:
         """0.10.0 (phase-05 pattern, proven in goal-seek): a tiny read-only
@@ -899,7 +917,7 @@ class CuriosityPlugin(LunaPlugin):
                 result = await mission.nudge_stale_draft(ctx, store)
                 if result == "nudged":
                     log.info("draft nudge: stale draft re-asked on contact")
-                await research.maybe_start_deep_kickoff(ctx, store)
+                await research.maybe_start_deep_kickoff(ctx, store, self._plans)
             except Exception:  # noqa: BLE001
                 log.debug("intake janitor failed", exc_info=True)
 
@@ -929,8 +947,18 @@ class CuriosityPlugin(LunaPlugin):
         # captured draft the capture/ask instructions must not re-inject
         # (they re-asked the question round in production).
         draft = await self._store.draft_get() if mission is None else None
+        # phase14: with a mission, the fragment states the setup-plan ledger
+        # position — whether setup may run and what the next ledger move is.
+        plan = None
+        if mission is not None and self._plans is not None:
+            try:
+                plan = await self._plans.current()
+            except Exception:  # noqa: BLE001 — the fragment must never fail
+                plan = None
         sections = [
-            prompt_fragment(mission, phase, slot_mode=_CLAIMS_SUPPORTED, draft=draft)
+            prompt_fragment(
+                mission, phase, slot_mode=_CLAIMS_SUPPORTED, draft=draft, plan=plan
+            )
         ]
         # 0.10.0: with the goal engine flipped, say so — the agent must know
         # its goals live in goal-seek (stages/policies, the Goals pane) and

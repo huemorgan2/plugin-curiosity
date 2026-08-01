@@ -31,6 +31,7 @@ from .prompts import (
     ASK_SHAPE,
     CANONICAL_EXAMPLE,
     COMPACT_ARTIFACT,
+    EXEC_SUMMARY_SHAPE,
     FDE_DOCTRINE,
     HEARTBEAT_CONTRACT,
     HEARTBEAT_NAME,
@@ -43,6 +44,8 @@ from .prompts import (
     OWNER_WORDS,
     PHASE_CHECK,
     PHASE_ONE_DOCTRINE,
+    PLAN_LEDGER_RULE,
+    PLAN_SHAPE,
     RATIFICATION_FORCING,
     SETUP_STAGE_DEFS,
     SUCCESS_TABLE_SHAPE,
@@ -53,10 +56,12 @@ from .prompts import (
 
 log = logging.getLogger("plugin-curiosity")
 
-# Allowlist for the kickoff reaction turn. share_thought is deliberately
-# absent: the kickoff reply IS the visible artifact — a same-moment
-# share_thought would double-post. playbook_* are chat_only and unavailable
-# in muted reaction turns regardless.
+# Allowlist for the PLANNING pass reaction turn (phase14: the deep pass no
+# longer scaffolds — it researches and puts a numbered plan on the owner's
+# desk). The allowlist IS the gate for this muted turn: scope_set, stage_set,
+# ability_upsert, goal_set, trigger_create, loop_open, value_log_add are
+# deliberately ABSENT — the planning turn physically cannot set the agent up.
+# share_thought is deliberately absent: the reply IS the visible artifact.
 KICKOFF_TOOLS = [
     "mission_get",
     "web_search",
@@ -69,41 +74,24 @@ KICKOFF_TOOLS = [
     "wiki_cite",
     "wiki_ask",
     "wiki_list_questions",
-    # 8.2: goals are committed IN the kickoff; the capability/reach scan uses
-    # marketplace + channel-status tools when their plugins are installed
-    # (absent names are simply not in the reaction turn's toolset — harmless).
-    "goal_set",
-    "goal_list",
+    # phase14: capability research — the plan cites what Luna can ACTUALLY
+    # do, never a guess (absent names are simply not in the reaction turn's
+    # toolset — harmless when a plugin isn't installed).
+    "get_plugin_status",
     "marketplace_search",
     "wa_status",
     "connector_list_connected",
-    # 9C: the kickoff IS the setup arc's S0→S2 — it charters scopes, opens
-    # loops for its own questions, logs first value, and stamps the stage.
-    "scope_set",
-    "scope_update",
-    "scope_list",
-    "stage_set",
-    "loop_open",
-    "loop_list",
-    "value_log_add",
-    # 10.001: the kickoff drafts the job description and derives the
-    # qualification ladder in the same turn.
-    "ability_upsert",
-    "ability_task_set",
-    "ability_list",
-    "plan_change_note",
-    # 9.001C: the kickoff ends with the agent creating its OWN setup
-    # heartbeat (a self-authored recurring trigger — trigger_create is
-    # auto_approve and provided by plugin-scheduler; absent name is harmless
-    # if the scheduler isn't installed).
-    "trigger_create",
-    "trigger_list",
-    # 11.002/M2: the deep pass's card is posted plugin-side before this turn
+    # phase14: the numbered plan ledger — open and write the plan, never
+    # approve it (the OK is the owner's, in chat, later) and never execute
+    # it (setup_plan_start / the scaffolding tools are not in this belt).
+    "setup_plan_open",
+    "setup_plan_list",
+    # 11.002/M2: the pass's card is posted plugin-side before this turn
     # spawns (announced+running); the turn closes it at the end.
     "next_step_done",
 ]
 
-KICKOFF_TITLE = "Mission kickoff"
+KICKOFF_TITLE = "Mission planning"
 
 # --- 11.001/M1: the kickoff split. mission_set posts an INSTANT BRIEF -------
 # --- (~3 s, a handful of calls, owner watching); the deep S0→S2 pass waits --
@@ -183,28 +171,26 @@ _KICKOFF_CONTENT = (
     """\
 Your mission: {statement}
 {confirm_note}
-You are in SETUP phase — the DEEP setup pass starts NOW, in this turn
-(S0→S2, ~18-24 tool calls; depth comes later, from your own heartbeat and
-the daily schedule). The owner already saw your first-look brief; this pass
-builds the real scaffolding behind it. Everything you produce in this turn
-is a LIVING DRAFT — say so, and improve it as you learn.
+You are in SETUP phase — this turn is your PLANNING pass (~12-18 tool
+calls). You research the JOB and what you can ACTUALLY do, then put a
+NUMBERED PLAN on the owner's desk. You build NOTHING in this turn — no
+scopes, no goals, no abilities, no heartbeat; those tools are not even in
+this turn's belt, by design. Everything you produce is a reviewable draft.
 {wiki_note}"""
     + OWNER_WORDS
     + "\n"
-    + HONEST_HORIZONS
+    + PLAN_LEDGER_RULE
     + "\n"
     + PHASE_ONE_DOCTRINE
     + "\n"
     + FDE_DOCTRINE
-    + "\n"
-    + SETUP_STAGE_DEFS
     + "\n"
     + TALENTED_HIRE_LAW
     + "\n"
     + ALREADY_SUPPLIED
     + """
 
-S0 — understand the JOB sharper than you were told:
+Understand the JOB sharper than you were told:
 1. Restate the mission SHARPER than the owner said it — one line; it heads
    your charter.
 2. Research the ROLE, not just the domain: 2-3 web_search — at least one on
@@ -215,7 +201,8 @@ S0 — understand the JOB sharper than you were told:
    observations on [[mission-domain]] (wiki_patch + wiki_cite — no uncited
    claims).
 3. Draft [[job-description]] v1 (wiki_write) — YOUR job description, from
-   the mission plus what you just learned about the role. """
+   the mission plus what you just learned about the role. The owner reviews
+   this page — it is the first thing you put on their desk. """
     + JOB_DESCRIPTION_SHAPE
     + """
 4. Write [[success-criteria]] (wiki_write): what success looks like — what
@@ -223,86 +210,53 @@ S0 — understand the JOB sharper than you were told:
    owner-checkable. """
     + SUCCESS_TABLE_SHAPE
     + """
-   The owner approves this page together with your job description; goals
-   must trace to it.
+   The owner approves this page together with your job description; the
+   plan's milestones must trace to it.
 
-S1 — the ladder, the inventory, first value:
-5. Derive your qualification ladder from the job description. """
-    + ABILITY_CONTRACT
-    + """
-6. Charter your scopes with scope_set — every area you must become competent
-   in, covering ALL seven kinds (knowledge, people, communication_paths,
-   tools_data_access, workflow_approval, playbooks, routines_feedback), each
-   attached to the ability it serves (ability_id). These scopes ARE your
-   qualification inventory.
-7. Inventory what you can use TODAY: marketplace_search 1-2 mission keywords
-   (a plugin that does part of the job is a subtask closed — name it in the
-   artifact and ask to install); wa_status / connector_list_connected for
-   off-platform reach — skip silently if a tool isn't available.
-   scope_update / ability_task_set anything you verified.
-8. First value pass with what you already have. """
-    + CANONICAL_EXAMPLE
-    + """. Timebox: shallow, redirectable passes — stub/summary wiki depth
-   only, NO deep corpus until the owner approves your job description. value_log_add
-   anything real you delivered (evidence: the wiki page).
+Research what Luna can ACTUALLY do — never assume a capability exists:
+5. get_plugin_status — read EVERY installed plugin and the tools it gives
+   you; this list, not your imagination, is what you can do today. Then
+   marketplace_search 1-2 mission keywords (a plugin that does part of the
+   job is a step closed — name it in the plan and ask to install), and
+   wa_status / connector_list_connected for off-platform reach — skip
+   silently if a tool isn't available. Findings go in the plan as "what I
+   have / what I'm missing", cited from the tool results.
 
-S2 — milestones, your own drive, and the post:
-9. COMMIT to 3-5 MILESTONES with goal_set — the big steps between you and
-   the mission visibly delivering, each one owner-readable ("first draft
-   replies flowing", not "research phase 2"). Together they must cover your
-   abilities, and each must trace to a criterion on [[success-criteria]] (a
-   milestone that serves no criterion is scope creep — cut it). Give each
-   an honest horizon (horizon_kind + horizon_ref): agent_minutes for your
-   own work, awaiting_approval / on_unlock for waits, date ONLY when a
-   real-world event carries a real date, rhythm for recurring — NEVER a
-   guessed calendar date; order and readiness beat guessed deadlines. For
-   the NEXT 1-2
-   milestones set expected_result (what done looks like) and readiness
-   (green/amber/red) with a one-line readiness_note: what you have / what's
-   missing.
-10. Ask ONLY plan-changing questions (would the answer change your plan? if
-   not, don't ask). Open each as a loop — loop_open(kind='question'),
-   stating what it unblocks — and record it with wiki_ask. ZERO access asks
-   in this turn. """
-    + VALUE_QUESTION_CADENCE
+Write the numbered plan and put it on the owner's desk:
+6. setup_plan_open(name=<short-kebab-handle>, objective=<one line>) — it
+   allocates your plan's number and returns the wiki slug. wiki_write the
+   FULL technical plan there, every detail you would otherwise carry in
+   your head. """
+    + PLAN_SHAPE
     + """
-11. Ensure your OWN setup heartbeat exists — THIS step is where it is born,
-   no other turn creates it: trigger_list first — if it somehow already
-   exists, leave it; else create it NOW with trigger_create. """
-    + HEARTBEAT_CONTRACT
-    + " "
-    + NEXT_TOUCH_RULE
+   The technical steps name the exact abilities, the scopes across all
+   seven kinds (knowledge, people, communication_paths, tools_data_access,
+   workflow_approval, playbooks, routines_feedback), the 3-5 MILESTONES
+   you will commit to — each with an honest horizon (horizon_kind +
+   horizon_ref, NEVER a guessed calendar date) and traced to a criterion
+   on [[success-criteria]] — the heartbeat trigger you will create, and
+   any install/access you need. """
+    + HONEST_HORIZONS
     + """
-12. stage_set('S2'), then reply with the **Mission Kickoff** artifact:
+7. Reply with the **Mission plan** artifact:
    - **Brief** — the mission in your own words, sharper.
-   - **What I found** — the 2-3 non-obvious observations, with sources.
-   - **My job description** — the essentials of [[job-description]] (how
-     you'll do it, what the owner sees after onboarding and in 30 days),
-     labeled draft v1.
+   - **What I found** — the 2-3 non-obvious role observations, with
+     sources, and the capability inventory: what I have / what I'm missing.
+   - **My job description** — the essentials of [[job-description]],
+     labeled draft v1, for their review.
    - **What success looks like** — the essentials of [[success-criteria]],
      in the owner's terms.
-   - **My ladder** — the abilities, each one line ([[role-charter]] holds
-     the scopes beneath them).
-   - **My milestones** — the 3-5 big steps, in order; the next 1-2 with
-     their readiness color and what's missing.
-   - **Where I am** — phase: setup — then the gap list: what still stands
-     between you and qualified, short and honest.
-   - **Access plan** — ranked by unlock-per-human-cost. You will ask for AT
-     MOST ONE at a time, later, riding on delivered value — the shape is
-     always """
-    + ASK_SHAPE
-    + """.
-   - **Open questions** — the plan-changing ones (each already a loop).
-   - **Next move** — ONE concrete action YOU will take. End with "say go and
-     I'll do it" (needs owner) or "already scheduled — my heartbeat drives
-     the rest" (doesn't). NEVER end on a list of suggestions for the owner
-     to do.
-   Close the artifact with: "this is my job description and what success
-   looks like — all drafts; please read them and approve, or push back now;
-   your approval lets me go deeper."
-13. LAST: a next-step card for this pass was posted before the turn started
-   — close it now with next_step_done (value_ref = the value-log entry from
-   step 8 if you logged one).
+   - **The plan** — plan {{number}} by name, its technical steps in
+     one-line-each owner terms, pointing at the full page on the wiki.
+   - **What I need from you** — read the job description and the plan;
+     push back on anything.
+   Close with: "nothing here runs until your OK — say ok or go and I
+   execute exactly this plan; or tell me what to change and I write the
+   next numbered plan." Then STOP. Do NOT call setup_plan_approve — the OK
+   is the owner's to give, in chat, in their own words. Silence is never a
+   yes.
+8. LAST: a next-step card for this pass was posted before the turn started
+   — close it now with next_step_done.
 """
 )
 
@@ -522,8 +476,10 @@ async def run_kickoff(
     compact: bool = False,
     confirm_note: str = "",
 ) -> None:
-    """The DEEP kickoff pass (S0→S2). Fired by mission_confirm only —
-    never directly by mission_set (11.001) and never by a timeout (phase12)."""
+    """The PLANNING pass (phase14 — formerly the deep S0→S2 pass; it now
+    researches and writes the numbered plan, and builds nothing). Fired by
+    mission_confirm only — never directly by mission_set (11.001) and never
+    by a timeout (phase12)."""
     content = _KICKOFF_CONTENT.format(
         statement=statement, wiki_note=_wiki_note(wiki_slug),
         confirm_note=confirm_note,
@@ -531,6 +487,148 @@ async def run_kickoff(
     if compact:
         content += "\n\n" + COMPACT_ARTIFACT
     await _post_moment_with_retries(ctx, KICKOFF_TITLE, content, KICKOFF_TOOLS)
+
+
+# --- phase14: the EXECUTION pass — runs an owner-APPROVED numbered plan -----
+# --- and nothing else. Spawned ONLY by setup_plan_approve (the owner's OK ---
+# --- recorded) or the janitor recovering an approved-but-unspawned plan. ----
+
+PLAN_EXEC_TITLE = "Setup plan execution"
+
+# The scaffolding set lives HERE — the one turn allowed to build, because an
+# owner-approved plan says exactly what to build.
+PLAN_EXEC_TOOLS = [
+    "mission_get",
+    "setup_plan_start",
+    "setup_plan_close",
+    "setup_plan_list",
+    "web_search",
+    "web_fetch",
+    "wiki_toc",
+    "wiki_read",
+    "wiki_search",
+    "wiki_write",
+    "wiki_patch",
+    "wiki_cite",
+    "wiki_ask",
+    "wiki_list_questions",
+    "scope_set",
+    "scope_update",
+    "scope_list",
+    "stage_set",
+    "ability_upsert",
+    "ability_task_set",
+    "ability_list",
+    "goal_set",
+    "goal_list",
+    "loop_open",
+    "loop_list",
+    "value_log_add",
+    "plan_change_note",
+    "trigger_create",
+    "trigger_list",
+    "marketplace_search",
+    "wa_status",
+    "connector_list_connected",
+    "next_step_done",
+]
+
+_PLAN_EXEC_CONTENT = (
+    """\
+Your mission: {statement}
+
+The owner APPROVED setup plan {plan_label} — their words: "{owner_words}".
+This turn EXECUTES that plan — exactly what its page says, nothing more
+(S0→S2, ~18-24 tool calls).
+{wiki_note}"""
+    + OWNER_WORDS
+    + "\n"
+    + PLAN_LEDGER_RULE
+    + "\n"
+    + SETUP_STAGE_DEFS
+    + "\n"
+    + HONEST_HORIZONS
+    + "\n"
+    + FDE_DOCTRINE
+    + "\n"
+    + ALREADY_SUPPLIED
+    + """
+
+1. setup_plan_start() FIRST — it marks the plan executing and unlocks the
+   scaffolding tools. If it refuses, STOP: reply with one short line naming
+   the ledger state; execute nothing.
+2. wiki_read '{plan_slug}' and execute its ## Technical steps IN ORDER,
+   exactly as written — a step not in the plan does not happen. The steps
+   will typically build:
+   - your qualification ladder. """
+    + ABILITY_CONTRACT
+    + """
+   - your scopes across the seven kinds, each attached to the ability it
+     serves (scope_set with ability_id).
+   - your 3-5 milestones (goal_set) with the horizons the plan wrote, each
+     traced to [[success-criteria]]; for the next 1-2 set expected_result
+     and readiness with a one-line readiness_note.
+   - your OWN setup heartbeat — born HERE, as a plan step: trigger_list
+     first; if it somehow already exists, leave it; else trigger_create
+     NOW. """
+    + HEARTBEAT_CONTRACT
+    + """
+   Small in-flight adjustments (a rename, a scope the plan implied) are
+   fine — note each in the summary. Anything that changes the plan's SHAPE
+   stops the run: skip it, close honestly, and draft the next numbered
+   plan instead.
+3. If the plan includes a first value pass, run it with what you already
+   have. """
+    + CANONICAL_EXAMPLE
+    + """. Stub/summary wiki depth only; value_log_add anything real you
+   delivered (evidence: the wiki page).
+4. Ask ONLY plan-changing questions, each as a loop —
+   loop_open(kind='question'), stating what it unblocks — and record it
+   with wiki_ask. ZERO access asks in this turn. """
+    + VALUE_QUESTION_CADENCE
+    + """
+5. stage_set('S2') when the plan's steps are done.
+6. ALWAYS — success, partial, or failure — wiki_write the execution
+   summary at '{summary_slug}'. """
+    + EXEC_SUMMARY_SHAPE
+    + """
+7. setup_plan_close(outcome='done' or 'failed', note=one line) — it
+   refuses until the summary page exists; that is the contract, not a bug.
+8. Reply short and honest: what ran, what you built, what failed or was
+   skipped, and [[{summary_slug}]] for the record. Anything left undone,
+   failed, or newly discovered becomes the NEXT numbered plan — drafted
+   with setup_plan_open, put on the owner's desk, NEVER executed before
+   their fresh OK. NEVER end on a list of suggestions for the owner to
+   do. """
+    + NEXT_TOUCH_RULE
+    + """
+9. LAST: a next-step card for this pass was posted before the turn started
+   — close it now with next_step_done (value_ref = the value-log entry
+   from step 3 if you logged one).
+"""
+)
+
+
+async def run_plan_execution(
+    ctx: PluginContext,
+    statement: str,
+    plan: dict,
+    wiki_slug: str | None = None,
+    compact: bool = False,
+) -> None:
+    """The EXECUTION pass for one approved plan. Fired by setup_plan_approve
+    only — the owner's recorded OK is the sole path here (phase14)."""
+    content = _PLAN_EXEC_CONTENT.format(
+        statement=statement,
+        plan_label=plan.get("label") or plan.get("slug", "?"),
+        owner_words=plan.get("decision_note") or "ok",
+        plan_slug=plan["slug"],
+        summary_slug=plan["summary_slug"],
+        wiki_note=_wiki_note(wiki_slug),
+    )
+    if compact:
+        content += "\n\n" + COMPACT_ARTIFACT
+    await _post_moment_with_retries(ctx, PLAN_EXEC_TITLE, content, PLAN_EXEC_TOOLS)
 
 
 # --- 9.001G: the heartbeat safety net — notice a missing heartbeat, nudge ---
@@ -720,11 +818,13 @@ async def spawn_deep_kickoff_once(
 
     await record_scheduled_step(
         sf,
-        "Deep setup pass — research the mission, draft my job description, "
-        "commit milestones",
-        why="the mission direction is settled (confirmed or timed out)",
-        produces="job description, success criteria, milestones, first value",
-        cost_text="one long working turn (~20 tool calls), a few web searches",
+        "Planning pass — research the mission and Luna's real capabilities, "
+        "draft my job description, write numbered setup plan 001 for your "
+        "review",
+        why="the owner confirmed the mission direction",
+        produces="job description, success criteria, a reviewable setup plan "
+        "— nothing executes until the owner's OK",
+        cost_text="one working turn (~15 tool calls), a few web searches",
         source="kickoff",
     )
     try:
@@ -742,6 +842,55 @@ async def spawn_deep_kickoff_once(
         return "no event loop — deep kickoff skipped"
 
 
+# --- phase14: the execution pass spawns at most once per PLAN ---------------
+
+_PLAN_EXEC_FLAG = "plan_exec_started"
+_plan_exec_claims: set[str] = set()
+
+
+async def spawn_plan_execution_once(
+    ctx: PluginContext, sf, mission: dict, plan: dict
+) -> str:
+    """Start the execution pass at most once per plan. Same claim+flag shape
+    as the deep pass: setup_plan_approve racing the janitor converges on a
+    single spawn."""
+    pid = str(plan["id"])
+    if pid in _plan_exec_claims:
+        return "already started"
+    flag_key = f"{_PLAN_EXEC_FLAG}:{pid}"
+    if await flag_get(sf, flag_key) is not None:
+        _plan_exec_claims.add(pid)
+        return "already started"
+    _plan_exec_claims.add(pid)
+    await flag_set(sf, flag_key, "started")
+    from .next_steps import record_scheduled_step
+
+    label = plan.get("label") or plan.get("slug", "?")
+    await record_scheduled_step(
+        sf,
+        f"Execute setup plan {label} — exactly what its page says",
+        why="the owner approved the plan"
+        + (f' ("{plan["decision_note"]}")' if plan.get("decision_note") else ""),
+        produces="the setup the plan describes + its execution summary at "
+        f"[[{plan.get('summary_slug', '?')}]]",
+        cost_text="one long working turn (~20 tool calls)",
+        source="kickoff",
+    )
+    try:
+        asyncio.get_running_loop().create_task(  # noqa: RUF006
+            run_plan_execution(
+                ctx,
+                mission["statement"],
+                plan,
+                wiki_slug=mission.get("wiki_id"),
+                compact=await _prefers_compact(ctx),
+            )
+        )
+        return "started"
+    except RuntimeError:
+        return "no event loop — plan execution skipped"
+
+
 def _parse_created(value) -> "datetime | None":
     from datetime import UTC as _UTC
     from datetime import datetime as _dt
@@ -755,10 +904,11 @@ def _parse_created(value) -> "datetime | None":
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=_UTC)
 
 
-async def maybe_start_deep_kickoff(ctx: PluginContext, store) -> str:
+async def maybe_start_deep_kickoff(ctx: PluginContext, store, plan_store=None) -> str:
     """The confirm-gate janitor (on-load + per-turn 'next contact'):
-    - a CONFIRMED mission whose deep pass never spawned (process died between
-      confirm and spawn) starts it now;
+    - an APPROVED plan whose execution pass never spawned (process died
+      between approve and spawn) starts it now (phase14);
+    - a CONFIRMED mission whose planning pass never spawned starts it now;
     - an UNCONFIRMED mission older than CONFIRM_TIMEOUT_H gets ONE muted
       re-ask nudge — the deep pass NEVER starts without the owner's yes
       (phase12: the timeout-proceed is gone; it fired unasked on upgrades);
@@ -778,6 +928,10 @@ async def maybe_start_deep_kickoff(ctx: PluginContext, store) -> str:
             if await _deep_flag_get(sf, mid) is None:
                 await _deep_flag_set(sf, mid, "grandfathered")
         return "already past S0"
+    if plan_store is not None:
+        plan = await plan_store.current()
+        if plan is not None and plan["status"] == "approved":
+            return await spawn_plan_execution_once(ctx, sf, mission, plan)
     if mission.get("confirmed_at"):
         return await spawn_deep_kickoff_once(
             ctx, sf, mission, compact=await _prefers_compact(ctx),

@@ -32,6 +32,7 @@ from sqlalchemy import select
 
 from luna_sdk import PluginContext, ToolDef
 
+from . import gating
 from .models import HeartbeatReport, Mission
 from .scopes import STAGE_LABELS
 
@@ -456,6 +457,7 @@ def register_tools(ctx: PluginContext, store: HeartbeatStore) -> None:
         PLUGIN_NAME,
         ToolDef(
             name="heartbeat_report",
+            group=gating.TOOL_GROUP,
             description=(
                 "End every setup-heartbeat fire with this: your structured "
                 "pulse. streak = consecutive clean fires (no new gaps, no "
@@ -489,6 +491,7 @@ def register_tools(ctx: PluginContext, store: HeartbeatStore) -> None:
         PLUGIN_NAME,
         ToolDef(
             name="metrics_snapshot",
+            group=gating.TOOL_GROUP,
             description=(
                 "Your server-computed adoption scoreboard: time to confirmed "
                 "mission, time to first win, card redirect rate, expectation "

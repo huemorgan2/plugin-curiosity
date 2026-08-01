@@ -340,11 +340,15 @@ class TestPromptLaw:
                 assert phrase not in cleaned, phrase
 
     async def test_kickoff_milestone_mandate_emits_typed_horizons(self):
-        from plugin_curiosity.research import _KICKOFF_CONTENT
+        # phase14: the milestones are WRITTEN (with typed horizons) in the
+        # planning pass's plan page and BUILT in the execution pass — the
+        # mandate must ride both surfaces
+        from plugin_curiosity.research import _KICKOFF_CONTENT, _PLAN_EXEC_CONTENT
 
         assert "honest horizon" in _KICKOFF_CONTENT
         assert "horizon_kind" in _KICKOFF_CONTENT
         assert "guessed calendar date" in _KICKOFF_CONTENT
+        assert "horizon" in _PLAN_EXEC_CONTENT
 
     async def test_owner_words_extended_with_horizon_vocabulary(self):
         from plugin_curiosity.prompts import OWNER_WORDS

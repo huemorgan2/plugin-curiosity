@@ -219,17 +219,21 @@ def test_contracts_ride_every_setup_surface():
         RATIFICATION_FORCING,
         VALUE_QUESTION_CADENCE,
     )
-    from plugin_curiosity.research import _KICKOFF_CONTENT, DAILY_RESEARCH_TARGET
+    from plugin_curiosity.research import (
+        _KICKOFF_CONTENT,
+        _PLAN_EXEC_CONTENT,
+        DAILY_RESEARCH_TARGET,
+    )
     from plugin_curiosity.review import WEEKLY_REVIEW_TARGET
 
+    # phase14 split: the planning pass carries the research/JD contracts;
+    # the execution pass carries the build contracts (ladder, questions)
     kickoff = _KICKOFF_CONTENT.format(statement="x", wiki_note="", confirm_note="")
-    for const in (
-        FDE_DOCTRINE,
-        JOB_DESCRIPTION_SHAPE,
-        ABILITY_CONTRACT,
-        VALUE_QUESTION_CADENCE,
-    ):
+    for const in (FDE_DOCTRINE, JOB_DESCRIPTION_SHAPE):
         assert kickoff.count(const) == 1
+    exec_pass = _PLAN_EXEC_CONTENT
+    for const in (FDE_DOCTRINE, ABILITY_CONTRACT, VALUE_QUESTION_CADENCE):
+        assert exec_pass.count(const) == 1
 
     mission = {"statement": "x", "autonomy_rung": 1, "risk_ceiling": "low"}
     frag = prompt_fragment(mission, "setup")

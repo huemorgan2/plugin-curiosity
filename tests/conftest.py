@@ -230,6 +230,7 @@ def _reset_kickoff_claim():
 
     pc._kickoff_claimed = False
     research._deep_claims.clear()
+    research._plan_exec_claims.clear()
     yield
     pc._kickoff_claimed = False
     research._deep_claims.clear()

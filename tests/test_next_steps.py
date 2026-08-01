@@ -284,7 +284,7 @@ async def test_deep_kickoff_records_its_card_plugin_side(sf, store, ctx):
     card = cards[0]
     assert card["source"] == "kickoff"
     assert card["status"] == "running"  # announced+started in one write
-    assert "Deep setup pass" in card["what"]
+    assert "Planning pass" in card["what"]  # phase14: the deep pass plans, never scaffolds
 
 
 # ---- overview surfaces ------------------------------------------------------

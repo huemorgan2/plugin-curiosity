@@ -33,6 +33,7 @@ from sqlalchemy import select
 
 from luna_sdk import PluginContext, ToolDef
 
+from . import gating
 from .models import Reflection
 from .prompts import WORK_WEEKLY_TITLE
 
@@ -244,6 +245,7 @@ def register_tools(
         "plugin-curiosity",
         ToolDef(
             name="share_thought",
+            group=gating.TOOL_GROUP,
             description=(
                 "Proactively share ONE grounded insight with the owner as a "
                 "badged reflection in chat. The body must cite a [[wiki-page]] "

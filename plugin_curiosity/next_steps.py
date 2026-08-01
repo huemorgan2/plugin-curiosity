@@ -32,7 +32,7 @@ from typing import Any
 from luna_sdk import PluginContext, ToolDef
 from sqlalchemy import select
 
-from . import telemetry
+from . import gating, telemetry
 from .comms import QUIET_END_HOUR, QUIET_START_HOUR
 from .models import Mission, NextStep, ValueEntry
 
@@ -504,4 +504,4 @@ def register_tools(ctx: PluginContext, store: NextStepStore) -> None:
         ),
     ]
     for tool_def, handler in defs:
-        ctx.tool_registry.register("plugin-curiosity", tool_def, handler)
+        ctx.tool_registry.register("plugin-curiosity", gating.stamp_group(tool_def), handler)

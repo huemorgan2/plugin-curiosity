@@ -65,6 +65,7 @@ log = logging.getLogger("plugin-curiosity")
 WIKI_SHELF = (
     ("mission", "Mission hub", "the mission statement and its trailhead"),
     ("job-description", "Job description", "how Luna will do the job — her living draft"),
+    ("setup-plans", "Setup plans", "numbered plans Luna runs on — each one owner-approved first"),
     ("role-charter", "What this job needs", "the areas Luna is getting ready in, and plan changes"),
     ("success-criteria", "What success looks like", "the scoreboard Luna scores each week"),
     ("mission-goals", "Goals", "the dated commitments Luna scores weekly"),

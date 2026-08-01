@@ -38,7 +38,7 @@ from sqlalchemy import select
 
 from luna_sdk import PluginContext, ToolDef
 
-from . import engine
+from . import engine, gating
 from .models import Goal
 
 log = logging.getLogger("plugin-curiosity")
@@ -489,7 +489,10 @@ def _register_yielding(ctx: PluginContext, tool_def: ToolDef, handler: Any) -> N
 
 
 def register_tools(ctx: PluginContext, store: GoalStore,
-                   mission_store: Any = None) -> None:
+                   mission_store: Any = None, plan_gate=None) -> None:
+    # plan_gate (phase14, wired only by _activate): goal_set is CREATE-side
+    # scaffolding — inside an owner-approved executing plan only while a
+    # setup mission is still at S0. goal_update stays open.
     from . import telemetry
 
     async def _mission_id() -> str | None:
@@ -511,6 +514,8 @@ def register_tools(ctx: PluginContext, store: GoalStore,
         horizon_kind: str = "",
         horizon_ref: str = "",
     ) -> dict[str, Any]:
+        if plan_gate is not None and (refusal := await plan_gate()):
+            return refusal
         if engine.resolve_goal_engine(ctx) == engine.GOAL_ENGINE_GOALSEEK:
             return await _set_via_goalseek(
                 ctx, store,
@@ -716,7 +721,10 @@ def register_tools(ctx: PluginContext, store: GoalStore,
     # design: with goal-seek installed its richer tools serve them; standalone
     # this ledger does — the deferential registration resolves both orders.
     for tool_def, handler in set_def:
-        ctx.tool_registry.register("plugin-curiosity", tool_def, handler)
+        ctx.tool_registry.register("plugin-curiosity", gating.stamp_group(tool_def), handler)
+    # yielding defs (goal_list/goal_update) stay UNstamped: their canonical
+    # group is `goals` (plugin-goalseek's), and the history-derived loaded-set
+    # resolves them by name — a declared override would desync the two.
     for tool_def, handler in yielding_defs:
         _register_yielding(ctx, tool_def, handler)
 
