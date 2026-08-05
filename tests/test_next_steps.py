@@ -228,7 +228,7 @@ async def test_post_handler_steers_by_status(nctx):
 
 
 def test_daily_target_opens_with_card_before_loop_patrol():
-    from plugin_curiosity.research import DAILY_RESEARCH_TARGET as t
+    from plugin_curiosity.research import DAILY_ROUTINE_SECTION as t
 
     assert "next_step_post" in t and "scheduled=true" in t
     assert t.index("CARD FIRST") < t.index("0. LOOP PATROL")

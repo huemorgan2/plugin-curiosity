@@ -248,12 +248,12 @@ async def test_loop_mirror_degrades_without_wiki(lstore):
 
 
 def test_daily_prompt_has_loop_patrol():
-    from plugin_curiosity.research import DAILY_RESEARCH_TARGET
+    from plugin_curiosity.research import DAILY_ROUTINE_SECTION
 
-    assert "0. LOOP PATROL" in DAILY_RESEARCH_TARGET
-    assert DAILY_RESEARCH_TARGET.index("LOOP PATROL") < DAILY_RESEARCH_TARGET.index("mission_get")
-    assert "UNUSED-GRANT CHECK" in DAILY_RESEARCH_TARGET
-    assert "loop_nudge" in DAILY_RESEARCH_TARGET and "loop_close" in DAILY_RESEARCH_TARGET
+    assert "0. LOOP PATROL" in DAILY_ROUTINE_SECTION
+    assert DAILY_ROUTINE_SECTION.index("LOOP PATROL") < DAILY_ROUTINE_SECTION.index("mission_get")
+    assert "UNUSED-GRANT CHECK" in DAILY_ROUTINE_SECTION
+    assert "loop_nudge" in DAILY_ROUTINE_SECTION and "loop_close" in DAILY_ROUTINE_SECTION
 
 
 def test_stub_slugs_include_loop_pages():

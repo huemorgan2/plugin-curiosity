@@ -307,17 +307,17 @@ class TestPromptLaw:
 
     async def test_law_rides_kickoff_daily_weekly(self):
         from plugin_curiosity.prompts import HONEST_HORIZONS
-        from plugin_curiosity.research import _KICKOFF_CONTENT, DAILY_RESEARCH_TARGET
+        from plugin_curiosity.research import _KICKOFF_CONTENT, DAILY_ROUTINE_SECTION
         from plugin_curiosity.review import WEEKLY_REVIEW_TARGET
 
         assert HONEST_HORIZONS in _KICKOFF_CONTENT
-        assert HONEST_HORIZONS in DAILY_RESEARCH_TARGET
+        assert HONEST_HORIZONS in DAILY_ROUTINE_SECTION
         assert HONEST_HORIZONS in WEEKLY_REVIEW_TARGET
 
     async def test_banned_durations_absent_from_generated_templates(self):
         from plugin_curiosity.mission import prompt_fragment
         from plugin_curiosity.prompts import JOB_DESCRIPTION_SHAPE
-        from plugin_curiosity.research import _KICKOFF_CONTENT, DAILY_RESEARCH_TARGET
+        from plugin_curiosity.research import _KICKOFF_CONTENT, DAILY_ROUTINE_SECTION
         from plugin_curiosity.review import WEEKLY_REVIEW_TARGET
 
         mission = {
@@ -329,7 +329,7 @@ class TestPromptLaw:
             JOB_DESCRIPTION_SHAPE,
             _KICKOFF_CONTENT.format(statement="x", wiki_note="",
                                     confirm_note=""),
-            DAILY_RESEARCH_TARGET,
+            DAILY_ROUTINE_SECTION,
             WEEKLY_REVIEW_TARGET,
             prompt_fragment(mission, "setup"),
             prompt_fragment(dict(mission, agent_phase="work"), "work"),

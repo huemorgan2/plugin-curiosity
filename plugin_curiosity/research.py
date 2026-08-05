@@ -260,9 +260,23 @@ Write the numbered plan and put it on the owner's desk:
 """
 )
 
+# 070/phase005 (core context-improvement): the scheduled fire used to carry
+# this whole routine as its payload — ~7k chars of imperative text persisted
+# into the conversation on EVERY daily fire. The routine now lives in a
+# byte-stable prompt section (registered by __init__.prompt_sections while a
+# mission exists; both branches always render, so the section never churns
+# the prompt cache) and the fire payload is two lines pointing at it.
 DAILY_RESEARCH_TARGET = (
-    "[curiosity] Daily pass. You OWN this mission — one focused pass "
-    "(~10 tool calls). " + PHASE_CHECK + "\n"
+    "[curiosity] Daily pass fired. You OWN this mission — one focused pass "
+    "(~10 tool calls). Follow your DAILY PASS ROUTINE prompt section to the "
+    "letter: card first, then loop patrol (step 0), then the branch for your "
+    "current agent_phase. mission_get reads the current statement."
+)
+
+DAILY_ROUTINE_SECTION = (
+    "DAILY PASS ROUTINE (the scheduled 'curiosity-daily-research' fire tells "
+    "you to run this; these are its full standing instructions): "
+    + PHASE_CHECK + "\n"
     "CARD FIRST (before step 0): this fire is self-directed spend — post its "
     "next-step card: next_step_post(what=this pass's one action, why, "
     "produces, cost_text, scheduled=true — this run rides your owner-visible "

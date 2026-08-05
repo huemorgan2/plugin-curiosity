@@ -100,10 +100,32 @@ def test_daily_research_target_is_wired():
     daily = next(s for s in MISSION_SCHEDULES if s["name"] == "curiosity-daily-research")
     assert daily["target"] == research.DAILY_RESEARCH_TARGET
     assert "Placeholder" not in daily["target"]
-    # the fired routine teaches the full loop: read mission, research, record,
-    # cite, share through the guardrails, defer playbook authoring to chat
+    # 070/phase005: the fire payload is a two-line pointer (≤300 chars on the
+    # wire); the full routine rides the standing DAILY_ROUTINE_SECTION prompt
+    # section instead of being persisted into the conversation every morning.
+    assert len(daily["target"]) <= 300
+    assert "DAILY PASS ROUTINE" in daily["target"]
     for marker in ("mission_get", "web_search", "wiki_cite", "share_thought", "chat-only"):
-        assert marker in daily["target"]
+        assert marker in research.DAILY_ROUTINE_SECTION
+
+
+@pytest.mark.asyncio
+async def test_daily_routine_section_rides_prompt_when_mission_set(store):
+    # 070/phase005: the routine is a standing prompt section, not fire payload
+    from plugin_curiosity import CuriosityPlugin
+
+    p = CuriosityPlugin()
+    p._store = store
+    p._missing = []
+    p._activated = True
+    p._scopes = None
+
+    sections = await p.prompt_sections()
+    assert not any("DAILY PASS ROUTINE" in s for s in sections)  # missionless
+
+    await store.set("grow signups")
+    sections = await p.prompt_sections()
+    assert research.DAILY_ROUTINE_SECTION in sections
 
 
 @pytest.mark.asyncio

@@ -222,7 +222,7 @@ def test_contracts_ride_every_setup_surface():
     from plugin_curiosity.research import (
         _KICKOFF_CONTENT,
         _PLAN_EXEC_CONTENT,
-        DAILY_RESEARCH_TARGET,
+        DAILY_ROUTINE_SECTION,
     )
     from plugin_curiosity.review import WEEKLY_REVIEW_TARGET
 
@@ -253,8 +253,8 @@ def test_contracts_ride_every_setup_surface():
     assert "ability_task_set" in HEARTBEAT_CONTRACT
     assert "job-description" in RATIFICATION_FORCING
     # daily pass reads the ladder and judges materiality
-    assert "ability_list" in DAILY_RESEARCH_TARGET
-    assert "role_pivot" in DAILY_RESEARCH_TARGET
+    assert "ability_list" in DAILY_ROUTINE_SECTION
+    assert "role_pivot" in DAILY_ROUTINE_SECTION
     # weekly review audits the JD shape and the ladder
     assert "job-description" in WEEKLY_REVIEW_TARGET
     assert "ability_list" in WEEKLY_REVIEW_TARGET

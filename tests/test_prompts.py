@@ -15,7 +15,7 @@ from plugin_curiosity.prompts import (
 from plugin_curiosity.research import (
     _KICKOFF_CONTENT,
     _PLAN_EXEC_CONTENT,
-    DAILY_RESEARCH_TARGET,
+    DAILY_ROUTINE_SECTION,
 )
 from plugin_curiosity.review import WEEKLY_REVIEW_TARGET
 
@@ -26,9 +26,9 @@ def test_shared_lines_exactly_once_per_surface():
     assert _KICKOFF_CONTENT.count(TALENTED_HIRE_LAW) == 1
     # phase14: access-ask vocabulary rides the recurring surfaces; the
     # planning pass makes no asks (its only ask is the owner's OK)
-    assert DAILY_RESEARCH_TARGET.count(ASK_SHAPE) == 1
+    assert DAILY_ROUTINE_SECTION.count(ASK_SHAPE) == 1
     assert WEEKLY_REVIEW_TARGET.count(ASK_SHAPE) == 1
-    assert DAILY_RESEARCH_TARGET.count(LOOP_DISCIPLINE) == 1
+    assert DAILY_ROUTINE_SECTION.count(LOOP_DISCIPLINE) == 1
     frag_setup = prompt_fragment(MISSION, "setup")
     assert frag_setup.count(TALENTED_HIRE_LAW) == 1
 
@@ -70,7 +70,7 @@ def test_execution_pass_shape():
 
 
 def test_daily_is_phase_branched():
-    t = DAILY_RESEARCH_TARGET
+    t = DAILY_ROUTINE_SECTION
     assert PHASE_CHECK in t
     assert "SETUP BRANCH (agent_phase='setup')" in t
     assert "WORK BRANCH (agent_phase='work')" in t
@@ -132,12 +132,12 @@ def test_fragment_phase_posture():
 
 
 def test_anti_patterns_absent():
-    for surface in (_KICKOFF_CONTENT, DAILY_RESEARCH_TARGET, WEEKLY_REVIEW_TARGET,
+    for surface in (_KICKOFF_CONTENT, DAILY_ROUTINE_SECTION, WEEKLY_REVIEW_TARGET,
                     prompt_fragment(MISSION, "setup"), prompt_fragment(MISSION, "work")):
         assert "work quietly" not in surface
     # never end on homework for the owner (phase14: the owner-facing reply
     # closes the EXECUTION pass; the planning pass rightly ends on the OK ask)
-    assert "never on homework" in DAILY_RESEARCH_TARGET
+    assert "never on homework" in DAILY_ROUTINE_SECTION
     assert "NEVER end on a list of suggestions" in _PLAN_EXEC_CONTENT
 
 
@@ -189,7 +189,7 @@ def test_prompt_budget_sanity():
     # 5-line note with prediction discipline (metrics_snapshot verbatim, one
     # proposal via proposal_open, 'No issues' honesty gate, incident weeks
     # propose nothing) — a correctness contract; the note itself SHRANK.
-    assert len(DAILY_RESEARCH_TARGET) < 7500
+    assert len(DAILY_ROUTINE_SECTION) < 7500
     assert len(WEEKLY_REVIEW_TARGET) < 11400
     # 0.13.0 (11.001/M1) nudged the budget: the milestone mandate (readiness
     # colors, expected_result on the next 1-2) replaced the dated-goal batch

@@ -23,7 +23,7 @@ from plugin_curiosity.prompts import (
 from plugin_curiosity.research import (
     _KICKOFF_CONTENT,
     _PLAN_EXEC_CONTENT,
-    DAILY_RESEARCH_TARGET,
+    DAILY_ROUTINE_SECTION,
     HEARTBEAT_NUDGE_CONTENT,
     INSTALL_KICKOFF_CONTENT,
     PLAN_EXEC_TOOLS,
@@ -40,8 +40,8 @@ def test_doctrine_on_every_setup_surface_and_only_there():
     for surface in (_KICKOFF_CONTENT, WEEKLY_REVIEW_TARGET, setup_frag):
         assert PHASE_ONE_DOCTRINE in surface
     # the daily rides a condensed doctrine line (char budget), same questions
-    assert "QUALIFYING yourself" in DAILY_RESEARCH_TARGET
-    assert "do I know what success looks like" in DAILY_RESEARCH_TARGET
+    assert "QUALIFYING yourself" in DAILY_ROUTINE_SECTION
+    assert "do I know what success looks like" in DAILY_ROUTINE_SECTION
     work_frag = prompt_fragment(MISSION, "work")
     assert PHASE_ONE_DOCTRINE not in work_frag
     assert PHASE_TWO_LINE in work_frag
@@ -63,9 +63,9 @@ def test_stage_ladder_single_sourced():
 
 def test_next_touch_and_ratification_forcing_ride_setup_surfaces():
     setup_frag = prompt_fragment(MISSION, "setup")
-    for surface in (_PLAN_EXEC_CONTENT, DAILY_RESEARCH_TARGET, setup_frag):
+    for surface in (_PLAN_EXEC_CONTENT, DAILY_ROUTINE_SECTION, setup_frag):
         assert NEXT_TOUCH_RULE in surface
-    for surface in (DAILY_RESEARCH_TARGET, WEEKLY_REVIEW_TARGET, setup_frag):
+    for surface in (DAILY_ROUTINE_SECTION, WEEKLY_REVIEW_TARGET, setup_frag):
         assert RATIFICATION_FORCING in surface
 
 
@@ -96,7 +96,7 @@ def test_heartbeat_contract_surfaces():
     assert "trigger_list" in HEARTBEAT_CONTRACT
     assert "trigger_list\n     first" in _PLAN_EXEC_CONTENT or "trigger_list first" in _PLAN_EXEC_CONTENT
     # daily recreates a missing heartbeat by canonical name; weekly audits it
-    assert HEARTBEAT_NAME in DAILY_RESEARCH_TARGET
+    assert HEARTBEAT_NAME in DAILY_ROUTINE_SECTION
     assert HEARTBEAT_NAME in WEEKLY_REVIEW_TARGET
     assert HEARTBEAT_NAME in HEARTBEAT_NUDGE_CONTENT
     assert HEARTBEAT_CONTRACT in HEARTBEAT_NUDGE_CONTENT

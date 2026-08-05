@@ -6,7 +6,7 @@ import pytest
 
 from plugin_curiosity import review
 from plugin_curiosity.mission import MISSION_SCHEDULES, prompt_fragment
-from plugin_curiosity.research import _KICKOFF_CONTENT, DAILY_RESEARCH_TARGET, KICKOFF_TOOLS
+from plugin_curiosity.research import _KICKOFF_CONTENT, DAILY_ROUTINE_SECTION, KICKOFF_TOOLS
 
 
 async def call(ctx, name, **kw):
@@ -224,7 +224,7 @@ def test_mission_kickoff_commits_goals_and_scans_reach():
 
 
 def test_daily_pass_works_the_ledger_and_reports():
-    t = DAILY_RESEARCH_TARGET
+    t = DAILY_ROUTINE_SECTION
     assert "goal_list" in t and "goal_update" in t
     assert "ONE goal" in t and "TODAY" in t
     assert "share_thought" in t and "Moved" in t

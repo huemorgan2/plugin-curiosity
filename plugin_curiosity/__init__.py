@@ -960,6 +960,13 @@ class CuriosityPlugin(LunaPlugin):
                 mission, phase, slot_mode=_CLAIMS_SUPPORTED, draft=draft, plan=plan
             )
         ]
+        # 070/phase005 (core context-improvement): the daily-pass routine is a
+        # standing, byte-stable prompt section; the scheduled fire's payload is
+        # two lines pointing here instead of a 7k-char imperative persisted
+        # into the conversation every morning. Both phase branches render, so
+        # the bytes never change at a phase flip (prompt-cache friendly).
+        if mission is not None:
+            sections.append(research.DAILY_ROUTINE_SECTION)
         # 0.10.0: with the goal engine flipped, say so — the agent must know
         # its goals live in goal-seek (stages/policies, the Goals pane) and
         # that goal_set still adds mission membership on top of the open.

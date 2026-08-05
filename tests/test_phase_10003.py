@@ -415,10 +415,10 @@ def test_owner_surfaces_have_no_hard_words():
 
 def test_prompts_carry_the_owner_words_rule():
     from plugin_curiosity.prompts import OWNER_WORDS, WIKI_BINDING
-    from plugin_curiosity.research import DAILY_RESEARCH_TARGET, HEARTBEAT_NUDGE_CONTENT
+    from plugin_curiosity.research import DAILY_ROUTINE_SECTION, HEARTBEAT_NUDGE_CONTENT
     from plugin_curiosity.review import WEEKLY_REVIEW_TARGET
 
-    for surface in (DAILY_RESEARCH_TARGET, WEEKLY_REVIEW_TARGET):
+    for surface in (DAILY_ROUTINE_SECTION, WEEKLY_REVIEW_TARGET):
         assert OWNER_WORDS in surface
         assert WIKI_BINDING in surface
     assert WIKI_BINDING in HEARTBEAT_NUDGE_CONTENT
