@@ -235,6 +235,29 @@ class NextStepStore:
                 )
             return d
 
+    async def sweep_lapsed(self) -> list[dict[str, Any]]:
+        """0.25.0 (luna 074/phase4): auto-start PROPOSED cards whose veto
+        window lapsed. The 2h veto used to be a black hole — nothing ever
+        started a lapsed card, so a fire that (wrongly or rightly) landed on
+        rung-1 PROPOSED just died there. Called from the per-turn intake
+        janitor; returns the cards it started."""
+        started: list[dict[str, Any]] = []
+        async with self._sf() as s:
+            now = _utcnow()
+            q = select(NextStep).where(NextStep.status == "proposed")
+            for st in (await s.execute(q)).scalars().all():
+                wu = st.wait_until
+                if wu is not None and wu.tzinfo is None:
+                    wu = wu.replace(tzinfo=UTC)
+                if wu is None or now < wu:
+                    continue
+                st.status = "running"
+                st.started_at = now
+                started.append(_step_dict(st))
+            if started:
+                await s.commit()
+        return started
+
     async def done(
         self,
         step_id: str | None = None,
@@ -246,6 +269,23 @@ class NextStepStore:
         if outcome not in ("done", "redirected"):
             raise ValueError("outcome must be 'done' or 'redirected'")
         async with self._sf() as s:
+            # 0.25.0 (luna 074/phase4): an omitted step_id used to close "the
+            # newest open card" — which in a multi-fire world was routinely a
+            # DIFFERENT fire's card (silent cross-close). Ambiguity is now an
+            # error instead of a guess.
+            if not step_id:
+                open_q = select(NextStep).where(
+                    NextStep.status.in_(("proposed", "announced", "running"))
+                )
+                open_cards = (await s.execute(open_q)).scalars().all()
+                if len(open_cards) > 1:
+                    ids = ", ".join(
+                        f"{c.id} ({(c.what or '')[:40]!r})" for c in open_cards
+                    )
+                    raise ValueError(
+                        "multiple next-step cards are open — pass step_id to "
+                        f"say WHICH one is finished: {ids}"
+                    )
             st = await self._open_step(s, step_id)
             if st.status in ("done", "redirected"):
                 raise ValueError(f"card is already {st.status}")

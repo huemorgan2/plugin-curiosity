@@ -177,7 +177,12 @@ async def test_omitted_step_id_resolves_newest_open(nstore):
     newer = await nstore.post("newer card", scheduled=True)
     started = await nstore.start()  # no id
     assert started["id"] == newer["id"]
-    closed = await nstore.done()
+    # 0.25.0 (074/phase4): done() with no id and >1 open card is now an
+    # ambiguity ERROR (it used to silently close the newest — routinely a
+    # different fire's card). Explicit id closes the right one.
+    with pytest.raises(ValueError, match="pass step_id"):
+        await nstore.done()
+    closed = await nstore.done(newer["id"])
     assert closed["id"] == newer["id"]
 
 
@@ -342,3 +347,47 @@ async def test_mission_detail_includes_next_steps(nstore, store, sf):
     detail = await mission_detail(sf, m["id"])
     assert len(detail["next_steps"]) == 1
     assert detail["next_steps"][0]["what"] == "daily pass"
+
+
+# ---- 0.25.0 (luna 074/phase4): veto-lapse sweeper + done affinity ----------
+
+
+@pytest.mark.asyncio
+async def test_sweep_lapsed_autostarts_proposed_card(nstore, sf):
+    card = await nstore.post(what="draft the newsletter outline")  # rung1 → proposed
+    assert card["status"] == "proposed"
+    await _expire_window(sf, card["id"])
+    started = await nstore.sweep_lapsed()
+    assert [c["id"] for c in started] == [card["id"]]
+    cur = await nstore.current()
+    assert cur["id"] == card["id"] and cur["status"] == "running"
+    assert cur["started_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_sweep_leaves_open_windows_alone(nstore):
+    card = await nstore.post(what="another step")
+    assert card["status"] == "proposed"
+    assert await nstore.sweep_lapsed() == []
+    cur = await nstore.current()
+    assert cur["status"] == "proposed"
+
+
+@pytest.mark.asyncio
+async def test_sweep_ignores_announced_and_running(nstore):
+    await nstore.post(what="scheduled thing", scheduled=True)  # announced
+    assert await nstore.sweep_lapsed() == []
+
+
+@pytest.mark.asyncio
+async def test_done_without_id_errors_when_multiple_cards_open(nstore):
+    a = await nstore.post(what="task A", scheduled=True)
+    b = await nstore.post(what="task B", scheduled=True)
+    with pytest.raises(ValueError, match="pass step_id"):
+        await nstore.done()
+    # explicit id still closes the RIGHT card
+    out = await nstore.done(a["id"])
+    assert out["id"] == a["id"] and out["status"] == "done"
+    # only B open now — the ergonomic no-id close works again
+    out2 = await nstore.done()
+    assert out2["id"] == b["id"]

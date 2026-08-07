@@ -489,7 +489,7 @@ if "prompt_overrides" in getattr(PluginManifest, "model_fields", {}):
 class CuriosityPlugin(LunaPlugin):
     manifest = PluginManifest(
         name="plugin-curiosity",
-        version="0.23.0",
+        version="0.25.0",
         description=(
             "Mission-driven curiosity: research, wiki-building, nightly dreams, "
             "self-set goals, weekly mission reviews, proactive reflections, and "
@@ -912,12 +912,24 @@ class CuriosityPlugin(LunaPlugin):
             return
         ctx, store = self._ctx, self._store
 
+        _nsteps = self._next_steps
+
         async def _run() -> None:
             try:
                 result = await mission.nudge_stale_draft(ctx, store)
                 if result == "nudged":
                     log.info("draft nudge: stale draft re-asked on contact")
                 await research.maybe_start_deep_kickoff(ctx, store, self._plans)
+                # 0.25.0 (luna 074/phase4): the veto window is only real if
+                # something starts lapsed cards — a turn IS contact, so sweep
+                # here. Nothing is created or spent; lapsed PROPOSED → running.
+                if _nsteps is not None:
+                    started = await _nsteps.sweep_lapsed()
+                    for card in started:
+                        log.info(
+                            "next-step veto lapsed, auto-started: %s",
+                            (card.get("what") or "")[:80],
+                        )
             except Exception:  # noqa: BLE001
                 log.debug("intake janitor failed", exc_info=True)
 
