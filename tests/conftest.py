@@ -101,6 +101,8 @@ class FakeToolRegistry:
         self.trigger_created: list[dict] = []
         self.trigger_updated: list[dict] = []
         self.trigger_deleted: list[str] = []
+        self.trigger_paused: list[str] = []
+        self.trigger_resumed: list[str] = []
         self.existing_triggers: list[dict] = []
         self.scheduler_installed = True
         self.has_update_tool = True
@@ -144,6 +146,22 @@ class FakeToolRegistry:
                 return {"id": kw["id"], "expr_cron": "0 9 * * *",
                         "next_run_at": "2026-01-01T09:00:00Z"}
             return types.SimpleNamespace(handler=_update)
+        if name == "trigger_pause":
+            async def _pause(**kw):
+                self.trigger_paused.append(kw["id"])
+                for t in self.existing_triggers:
+                    if t["id"] == kw["id"]:
+                        t["enabled"] = False
+                return {"ok": True}
+            return types.SimpleNamespace(handler=_pause)
+        if name == "trigger_resume":
+            async def _resume(**kw):
+                self.trigger_resumed.append(kw["id"])
+                for t in self.existing_triggers:
+                    if t["id"] == kw["id"]:
+                        t["enabled"] = True
+                return {"ok": True}
+            return types.SimpleNamespace(handler=_resume)
         if name == "trigger_delete":
             async def _delete(**kw):
                 self.trigger_deleted.append(kw["id"])

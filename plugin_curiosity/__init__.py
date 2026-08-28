@@ -26,6 +26,7 @@ Missions pane (sidebar section + static iframe app served from routes).
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from datetime import UTC, datetime
 
@@ -62,6 +63,7 @@ from . import (
     mission,
     next_steps,
     planning,
+    prompts,
     proposals,
     research,
     scopes,
@@ -95,6 +97,11 @@ log = logging.getLogger("plugin-curiosity")
 SYNC_ON_LOAD_DELAY_S = 15.0
 
 INSTALL_KICKOFF_FLAG = "install_kickoff_sent"
+
+# 0.26.0 (core plan 072): trigger ids paused by on_disable, stored as a JSON
+# list in a Flag row. on_enable resumes exactly these and nothing else — a
+# trigger the owner paused by hand must stay paused across a toggle cycle.
+PAUSED_BY_DISABLE_FLAG = "paused_by_disable"
 
 # 9.001G: at most one heartbeat nudge per UTC day — restarts must not turn
 # the safety net into a nag.
@@ -207,6 +214,34 @@ async def _flag_set(sf, key: str, value: str = "1") -> None:
         else:
             row.value = value
         await s.commit()
+
+
+async def _flag_del(sf, key: str) -> None:
+    async with sf() as s:
+        row = await s.get(Flag, key)
+        if row is not None:
+            await s.delete(row)
+            await s.commit()
+
+
+async def _plugin_disabled(sf) -> bool:
+    """0.26.0 (core 072): True when the owner has toggled this plugin OFF.
+    The core keeps a disabled plugin loaded (load-but-hide), so on-load work
+    must check for itself. Raw SQL against core's plugins registry — same
+    pattern as _setup_incomplete; any failure reads as 'enabled' so exotic
+    cores keep the old behavior."""
+    try:
+        from sqlalchemy import text as _sql
+
+        async with sf() as s:
+            row = (
+                await s.execute(
+                    _sql("SELECT enabled FROM plugins WHERE name = 'plugin-curiosity'")
+                )
+            ).first()
+        return row is not None and not row[0]
+    except Exception:  # noqa: BLE001
+        return False
 
 
 async def _setup_incomplete(sf) -> bool:
@@ -344,6 +379,11 @@ def schedule_on_load_work(
     _onload["loop"] = loop
 
     async def _run() -> None:
+        # 0.26.0 (core 072): a toggled-OFF plugin stays loaded but must be
+        # dormant — no drains, no kickoff, no nudges, no trigger sync.
+        if await _plugin_disabled(ctx.db_session_factory):
+            log.info("on-load work skipped: plugin is disabled")
+            return
         # 9.002A: no owner-facing sends while the dependency gate is (still)
         # closed — the authoritative re-check comes after the sleep.
         if not missing_dependencies(ctx):
@@ -359,6 +399,12 @@ def schedule_on_load_work(
         # with the moment posted but no reaction/flag (QA run 2). Only the
         # serving-loop task reaches the send.
         await asyncio.sleep(SYNC_ON_LOAD_DELAY_S)
+        # 0.26.0 (core 072): re-check after the sleep — the owner may have
+        # toggled the plugin off during the window (the prod incident: a
+        # disable racing this task still posted the kickoff moment).
+        if await _plugin_disabled(ctx.db_session_factory):
+            log.info("on-load work skipped: plugin was disabled mid-flight")
+            return
         # 9.002A: the authoritative gate check — every plugin that will load
         # has loaded by now. Blocked → tell the agent's owner once and do NO
         # other on-load work; satisfied → (late-)activate and continue.
@@ -489,7 +535,7 @@ if "prompt_overrides" in getattr(PluginManifest, "model_fields", {}):
 class CuriosityPlugin(LunaPlugin):
     manifest = PluginManifest(
         name="plugin-curiosity",
-        version="0.25.0",
+        version="0.26.0",
         description=(
             "Mission-driven curiosity: research, wiki-building, nightly dreams, "
             "self-set goals, weekly mission reviews, proactive reflections, and "
@@ -575,6 +621,80 @@ class CuriosityPlugin(LunaPlugin):
             self._loops,
             self._abilities,
         )
+
+    @staticmethod
+    def _cancel_onload_task() -> None:
+        task = _onload.get("task")
+        if task is not None and not task.done():
+            task.cancel()
+
+    async def on_unload(self) -> None:
+        """core 072: teardown (upgrade/delete). Cancel the pending on-load
+        task so a torn-down instance can't post sends mid-swap, and clear the
+        loop guard so the replacement version schedules its own pass."""
+        self._cancel_onload_task()
+        _onload["loop"] = None
+        _onload["task"] = None
+
+    async def on_disable(self) -> None:
+        """core 072: owner toggled curiosity OFF. Reversible dormancy: cancel
+        pending on-load work and PAUSE (never delete) the triggers curiosity
+        answers for — the 4 mission schedules (created_by=plugin-curiosity)
+        and the agent-authored setup heartbeat (well-known name). Fire
+        history and the heartbeat streak survive; the paused ids are recorded
+        so on_enable resumes exactly this set."""
+        self._cancel_onload_task()
+        if self._ctx is None:
+            return
+        try:
+            lister = self._ctx.tool_registry.get("trigger_list").handler
+            pauser = self._ctx.tool_registry.get("trigger_pause").handler
+        except KeyError:
+            return  # no scheduler (or too old) — nothing to pause
+        listed = await lister()
+        if not isinstance(listed, dict) or "error" in listed:
+            log.warning("on_disable: trigger_list failed, triggers left running")
+            return
+        owned_names = {prompts.HEARTBEAT_NAME} | {s["name"] for s in mission.MISSION_SCHEDULES}
+        paused: list[str] = []
+        for t in listed.get("triggers", []):
+            if not t.get("enabled"):
+                continue
+            if t.get("created_by") != "plugin-curiosity" and t.get("name") not in owned_names:
+                continue
+            result = await pauser(id=t["id"])
+            if isinstance(result, dict) and "error" not in result:
+                paused.append(t["id"])
+        if paused:
+            await _flag_set(
+                self._ctx.db_session_factory, PAUSED_BY_DISABLE_FLAG, json.dumps(paused)
+            )
+        log.info("on_disable: paused %d trigger(s)", len(paused))
+
+    async def on_enable(self) -> None:
+        """core 072: undo on_disable — resume exactly the recorded trigger
+        ids, then clear the record. A hand-paused trigger stays paused."""
+        if self._ctx is None:
+            return
+        sf = self._ctx.db_session_factory
+        raw = await _flag_get(sf, PAUSED_BY_DISABLE_FLAG)
+        if not raw:
+            return
+        try:
+            ids = json.loads(raw)
+        except ValueError:
+            ids = []
+        try:
+            resumer = self._ctx.tool_registry.get("trigger_resume").handler
+        except KeyError:
+            return  # scheduler gone — keep the record for a later enable
+        resumed = 0
+        for tid in ids:
+            result = await resumer(id=tid)
+            if isinstance(result, dict) and "error" not in result:
+                resumed += 1
+        await _flag_del(sf, PAUSED_BY_DISABLE_FLAG)
+        log.info("on_enable: resumed %d of %d trigger(s)", resumed, len(ids))
 
     async def reevaluate_gate(self, ctx: PluginContext) -> list[str]:
         """Check the hard dependencies; (late-)activate when satisfied.
